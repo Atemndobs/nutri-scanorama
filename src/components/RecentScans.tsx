@@ -42,6 +42,9 @@ export const RecentScans = () => {
               <p className="text-sm text-muted-foreground">
                 {receipt.processed ? "Processed" : "Processing..."}
               </p>
+              {receipt.processed && receipt.totalAmount && (
+                <p className="font-medium">€{receipt.totalAmount.toFixed(2)}</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -62,11 +65,15 @@ export const RecentScans = () => {
                   </p>
                 </div>
                 <div className="text-sm text-muted-foreground">
-                  {selectedReceipt.processed ? "Processed" : "Processing..."}
+                  {selectedReceipt.processed ? (
+                    <span className="text-green-500">Processed</span>
+                  ) : (
+                    <span className="text-yellow-500">Processing...</span>
+                  )}
                 </div>
               </div>
               
-              {selectedReceipt.processed ? (
+              {selectedReceipt.processed && selectedReceipt.items ? (
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -76,10 +83,18 @@ export const RecentScans = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
+                    {selectedReceipt.items.map((item, index) => (
+                      <TableRow key={index}>
+                        <TableCell className="font-medium">{item.name}</TableCell>
+                        <TableCell>{item.category}</TableCell>
+                        <TableCell className="text-right">€{item.price.toFixed(2)}</TableCell>
+                      </TableRow>
+                    ))}
                     <TableRow>
-                      <TableCell className="font-medium">Sample Item</TableCell>
-                      <TableCell>Food</TableCell>
-                      <TableCell className="text-right">€9.99</TableCell>
+                      <TableCell colSpan={2} className="font-bold">Total</TableCell>
+                      <TableCell className="text-right font-bold">
+                        €{selectedReceipt.totalAmount?.toFixed(2)}
+                      </TableCell>
                     </TableRow>
                   </TableBody>
                 </Table>
