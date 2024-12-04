@@ -1,11 +1,19 @@
 import Dexie, { Table } from 'dexie';
 
+export interface ReceiptItem {
+  name: string;
+  category: string;
+  price: number;
+}
+
 export interface Receipt {
   id?: number;
   storeName: string;
   imageData: string;
   uploadDate: Date;
   processed: boolean;
+  items?: ReceiptItem[];
+  totalAmount?: number;
 }
 
 export class NutriScanDB extends Dexie {
