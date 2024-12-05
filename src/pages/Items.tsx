@@ -28,9 +28,12 @@ export const ItemsPage = () => {
   const { toast } = useToast();
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
 
+  // Validate and convert receiptId to number
+  const parsedReceiptId = receiptId ? parseInt(receiptId, 10) : null;
+
   const receipt = useLiveQuery(
-    () => db.receipts.get(Number(receiptId)),
-    [receiptId]
+    () => (parsedReceiptId ? db.receipts.get(parsedReceiptId) : null),
+    [parsedReceiptId]
   );
 
   const handleEditItem = async (itemId: number, updates: Partial<Item>) => {
@@ -66,8 +69,40 @@ export const ItemsPage = () => {
     }
   };
 
+  if (!parsedReceiptId || isNaN(parsedReceiptId)) {
+    return (
+      <div className="container max-w-2xl mx-auto p-4">
+        <div className="flex items-center space-x-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate(-1)}
+            className="h-8 w-8"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <h1 className="text-2xl font-bold">Invalid Receipt ID</h1>
+        </div>
+      </div>
+    );
+  }
+
   if (!receipt) {
-    return <div>Loading...</div>;
+    return (
+      <div className="container max-w-2xl mx-auto p-4">
+        <div className="flex items-center space-x-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate(-1)}
+            className="h-8 w-8"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <h1 className="text-2xl font-bold">Loading...</h1>
+        </div>
+      </div>
+    );
   }
 
   return (
