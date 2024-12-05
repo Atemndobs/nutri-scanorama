@@ -1,6 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import { Index } from "@/pages/Index";
-import { Settings } from "@/pages/Settings";
+import Index from "@/pages/Index";
+import Settings from "@/pages/Settings";
 import { ItemsPage } from "@/pages/Items";
 import { Navigation } from "@/components/Navigation";
 import { Header } from "@/components/Header";

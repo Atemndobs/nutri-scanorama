@@ -4,7 +4,6 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { ArrowLeft, Save, Trash } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -15,6 +14,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+
+interface Item {
+  id?: number;
+  name: string;
+  category: string;
+  price: number;
+}
 
 export const ItemsPage = () => {
   const { receiptId } = useParams();
@@ -27,7 +33,7 @@ export const ItemsPage = () => {
     [receiptId]
   );
 
-  const handleEditItem = async (itemId: number, updates: Partial<typeof item>) => {
+  const handleEditItem = async (itemId: number, updates: Partial<Item>) => {
     try {
       await db.items.update(itemId, updates);
       setEditingItemId(null);
@@ -89,7 +95,7 @@ export const ItemsPage = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {receipt.items?.map((item) => (
+            {receipt.items?.map((item: Item) => (
               <TableRow key={item.id}>
                 {editingItemId === item.id ? (
                   <>
