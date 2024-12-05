@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Receipt, ShoppingBag } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
+import { useNavigate } from "react-router-dom";
+import { Button } from "./ui/button";
 
 export const RecentScans = () => {
   const [selectedReceipt, setSelectedReceipt] = useState<any | null>(null);
+  const navigate = useNavigate();
   
   const receipts = useLiveQuery(() => 
     db.receipts
@@ -16,6 +19,10 @@ export const RecentScans = () => {
       .limit(3)
       .toArray()
   );
+
+  const handleViewItems = (receiptId: number) => {
+    navigate(`/items/${receiptId}`);
+  };
 
   return (
     <div className="space-y-4">
@@ -75,30 +82,42 @@ export const RecentScans = () => {
               </div>
               
               {selectedReceipt.processed && selectedReceipt.items ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Item</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead className="text-right">Price</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {selectedReceipt.items.map((item: any, index: number) => (
-                      <TableRow key={index}>
-                        <TableCell className="font-medium">{item.name}</TableCell>
-                        <TableCell>{item.category}</TableCell>
-                        <TableCell className="text-right">€{item.price.toFixed(2)}</TableCell>
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead className="text-right">Price</TableHead>
                       </TableRow>
-                    ))}
-                    <TableRow>
-                      <TableCell colSpan={2} className="font-bold">Total</TableCell>
-                      <TableCell className="text-right font-bold">
-                        €{selectedReceipt.totalAmount.toFixed(2)}
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedReceipt.items.map((item: any, index: number) => (
+                        <TableRow key={index}>
+                          <TableCell className="font-medium">{item.name}</TableCell>
+                          <TableCell>{item.category}</TableCell>
+                          <TableCell className="text-right">€{item.price.toFixed(2)}</TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow>
+                        <TableCell colSpan={2} className="font-bold">Total</TableCell>
+                        <TableCell className="text-right font-bold">
+                          €{selectedReceipt.totalAmount.toFixed(2)}
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={() => {
+                        setSelectedReceipt(null);
+                        handleViewItems(selectedReceipt.id);
+                      }}
+                    >
+                      Edit Items
+                    </Button>
+                  </div>
+                </>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
                   Receipt is being processed...

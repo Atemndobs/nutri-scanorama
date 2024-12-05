@@ -1,26 +1,29 @@
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { Index } from "@/pages/Index";
+import { Settings } from "@/pages/Settings";
+import { ItemsPage } from "@/pages/Items";
+import { Navigation } from "@/components/Navigation";
+import { Header } from "@/components/Header";
 import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Index from "./pages/Index";
-import Settings from "./pages/Settings";
+import "./App.css";
 
-const queryClient = new QueryClient();
-
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+function App() {
+  return (
+    <Router>
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container max-w-md mx-auto p-4 pb-24">
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/items/:receiptId" element={<ItemsPage />} />
+          </Routes>
+        </main>
+        <Navigation />
+        <Toaster />
+      </div>
+    </Router>
+  );
+}
 
 export default App;
