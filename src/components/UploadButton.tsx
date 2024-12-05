@@ -48,14 +48,17 @@ export const UploadButton = () => {
 
           // Parse the extracted text using our custom REWE parser
           const parsedData = parseReweReceipt(result.data.text);
+          const currentDate = new Date();
           
           // Update receipt with processed data
           await db.receipts.update(receiptId, {
             storeName: parsedData.storeName,
             items: parsedData.items.map(item => ({
               name: item.name,
-              category: item.taxRate === 'B' ? 'Food' : 'Other', // Basic categorization based on tax rate
-              price: item.totalPrice
+              category: item.taxRate === 'B' ? 'Food' : 'Other',
+              price: item.totalPrice,
+              receiptId: receiptId,
+              date: currentDate
             })),
             totalAmount: parsedData.totalAmount,
             processed: true
