@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Upload } from "lucide-react";
 import { db } from "@/lib/db";
 import { useToast } from "@/hooks/use-toast";
-import { processReceiptWithOllama } from "@/lib/ollama-service";
+import { parseReweReceipt } from "@/lib/parsers/rewe-parser";
+import Tesseract from 'tesseract.js';
 
 export const UploadButton = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -35,15 +36,28 @@ export const UploadButton = () => {
           description: "Processing receipt data...",
         });
 
-        // Process receipt with Ollama
         try {
-          const processedData = await processReceiptWithOllama(base64String);
+          // Use Tesseract.js to extract text from the image
+          const result = await Tesseract.recognize(
+            base64String,
+            'deu', // German language
+            {
+              logger: m => console.log(m)
+            }
+          );
+
+          // Parse the extracted text using our custom REWE parser
+          const parsedData = parseReweReceipt(result.data.text);
           
           // Update receipt with processed data
           await db.receipts.update(receiptId, {
-            storeName: processedData.storeName,
-            items: processedData.items,
-            totalAmount: processedData.totalAmount,
+            storeName: parsedData.storeName,
+            items: parsedData.items.map(item => ({
+              name: item.name,
+              category: item.taxRate === 'B' ? 'Food' : 'Other', // Basic categorization based on tax rate
+              price: item.totalPrice
+            })),
+            totalAmount: parsedData.totalAmount,
             processed: true
           });
 
@@ -52,6 +66,7 @@ export const UploadButton = () => {
             description: "Receipt data has been extracted successfully",
           });
         } catch (error) {
+          console.error('Error processing receipt:', error);
           toast({
             title: "Processing failed",
             description: "Failed to extract receipt data. Please try again.",
@@ -67,6 +82,7 @@ export const UploadButton = () => {
 
       reader.readAsDataURL(file);
     } catch (error) {
+      console.error('Upload error:', error);
       toast({
         title: "Upload failed",
         description: "There was an error uploading your receipt",
@@ -87,7 +103,7 @@ export const UploadButton = () => {
         type="file"
         ref={fileInputRef}
         onChange={handleFileUpload}
-        accept="image/*,.pdf"
+        accept="image/*"
         className="hidden"
       />
       <Button
