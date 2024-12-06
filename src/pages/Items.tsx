@@ -5,8 +5,9 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Save, Trash } from "lucide-react";
+import { ArrowLeft, Save, Trash, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { capitalizeFirstLetter } from "@/lib/utils";
 import {
   Table,
   TableBody,
@@ -76,26 +77,39 @@ export const ItemsPage = () => {
     [parsedReceiptId]
   );
 
-  const handleInputChange = (field: keyof UpdateSpec, value: string | number) => {
-    setEditForm(prev => ({
-      ...prev,
+  const handleInputChange = async (field: keyof UpdateSpec, value: string | number) => {
+    const newEditForm = {
+      ...editForm,
       [field]: field === 'category' ? value as CategoryName : value
-    }));
+    };
+    setEditForm(newEditForm);
+
+    // If it's a category change, save immediately
+    if (field === 'category' && editingItemId) {
+      await handleSave(editingItemId, newEditForm);
+    }
   };
 
-  const handleSave = async (itemId: number) => {
+  const handleKeyDown = (e: React.KeyboardEvent, itemId: number) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSave(itemId);
+    }
+  };
+
+  const handleSave = async (itemId: number, formData = editForm) => {
     try {
       const item = await db.items.get(itemId);
       if (!item) throw new Error('Item not found');
 
-      // If category is being changed, update category counts
-      if (editForm.category && editForm.category !== item.category) {
-        console.debug('[ItemsPage] Category change detected:', {
-          from: item.category,
-          to: editForm.category
-        });
+      await db.transaction('rw', [db.items, db.categories, db.receipts], async () => {
+        // If category is being changed, update category counts
+        if (formData.category && formData.category !== item.category) {
+          console.debug('[ItemsPage] Category change detected:', {
+            from: item.category,
+            to: formData.category
+          });
 
-        await db.transaction('rw', [db.items, db.categories], async () => {
           // Decrement old category count
           await db.categories
             .where('name')
@@ -107,18 +121,35 @@ export const ItemsPage = () => {
           // Increment new category count
           await db.categories
             .where('name')
-            .equals(editForm.category!)
+            .equals(formData.category!)
             .modify(cat => {
               cat.itemCount = (cat.itemCount || 0) + 1;
             });
+        }
 
-          // Update the item
-          await db.items.update(itemId, editForm);
-        });
-      } else {
-        // If no category change, just update the item
-        await db.items.update(itemId, editForm);
-      }
+        // Update the item
+        await db.items.update(itemId, formData);
+
+        // If price was changed, update receipt total
+        if (formData.price !== undefined && formData.price !== item.price) {
+          // Get all items for this receipt to calculate new total
+          const receiptItems = await db.items
+            .where('receiptId')
+            .equals(item.receiptId)
+            .toArray();
+
+          // Calculate new total (including the updated price)
+          const newTotal = receiptItems.reduce((sum, currentItem) => {
+            const price = currentItem.id === itemId ? formData.price! : currentItem.price;
+            return sum + price;
+          }, 0);
+
+          // Update receipt with new total
+          await db.receipts.update(item.receiptId, {
+            totalAmount: newTotal
+          });
+        }
+      });
 
       setEditingItemId(null);
       setEditForm({});
@@ -243,8 +274,9 @@ export const ItemsPage = () => {
                     <>
                       <TableCell>
                         <Input
-                          value={editForm.name ?? item.name}
+                          value={editForm.name ?? capitalizeFirstLetter(item.name)}
                           onChange={(e) => handleInputChange('name', e.target.value)}
+                          onKeyDown={(e) => handleKeyDown(e, item.id!)}
                         />
                       </TableCell>
                       <TableCell>
@@ -252,10 +284,10 @@ export const ItemsPage = () => {
                           value={editForm.category ?? item.category}
                           onValueChange={(value) => handleInputChange('category', value)}
                         >
-                          <SelectTrigger className="w-[130px]">
+                          <SelectTrigger className="w-15 px-2">
                             <SelectValue>
                               {editForm.category && (
-                                <div className="flex items-center space-x-2">
+                                <div className="flex items-center justify-center">
                                   {React.createElement(categoryIcons[editForm.category], {
                                     className: "h-4 w-4",
                                     style: { color: defaultCategories[editForm.category].color }
@@ -264,14 +296,15 @@ export const ItemsPage = () => {
                               )}
                             </SelectValue>
                           </SelectTrigger>
-                          <SelectContent>
+                          <SelectContent align="start" className="min-w-[120px]">
                             {Object.entries(categoryIcons).map(([category, Icon]) => (
                               <SelectItem key={category} value={category}>
-                                <div className="flex items-center space-x-2">
+                                <div className="flex items-center gap-2">
                                   {React.createElement(Icon, {
                                     className: "h-4 w-4",
                                     style: { color: defaultCategories[category as CategoryName].color }
                                   })}
+                                  <span className="capitalize">{category.toLowerCase().replace('_', ' ')}</span>
                                 </div>
                               </SelectItem>
                             ))}
@@ -283,12 +316,16 @@ export const ItemsPage = () => {
                           type="number"
                           value={editForm.price ?? item.price}
                           onChange={(e) => handleInputChange('price', parseFloat(e.target.value))}
+                          onKeyDown={(e) => handleKeyDown(e, item.id!)}
+                          step="0.01"
+                          min="0"
+                          className="w-16 text-right"
                         />
                       </TableCell>
                     </>
                   ) : (
                     <>
-                      <TableCell className="text-left">{item.name}</TableCell>
+                      <TableCell className="text-left">{capitalizeFirstLetter(item.name)}</TableCell>
                       <TableCell>
                         <div className="flex items-center justify-center">
                           {React.createElement(categoryIcons[item.category], { 
@@ -315,7 +352,11 @@ export const ItemsPage = () => {
                           }
                         }}
                       >
-                        <Save className="h-4 w-4" />
+                        {editingItemId === item.id ? (
+                          <Save className="h-4 w-4" />
+                        ) : (
+                          <Pencil className="h-4 w-4" />
+                        )}
                       </Button>
                       <Button
                         variant="ghost"
