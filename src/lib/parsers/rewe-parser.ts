@@ -1,9 +1,13 @@
+import type { CategoryName } from '@/types/categories';
+import { db } from '@/lib/db';
+
 interface ReweReceiptItem {
   name: string;
   quantity?: number;
   pricePerUnit?: number;
   totalPrice: number;
   taxRate: "A" | "B"; // In Germany, A = 19%, B = 7%
+  category: CategoryName;
 }
 
 interface ParsedReweReceipt {
@@ -18,7 +22,15 @@ interface ParsedReweReceipt {
   };
 }
 
-export const parseReweReceipt = (text: string): ParsedReweReceipt => {
+async function determineCategory(itemName: string): Promise<CategoryName> {
+  return db.determineCategory(itemName);
+}
+
+async function incrementCategoryCount(category: CategoryName) {
+  await db.incrementCategoryCount(category);
+}
+
+export async function parseReweReceipt(text: string): Promise<ParsedReweReceipt> {
   // Split text into lines and remove empty lines
   const lines = text.split('\n').filter(line => line.trim() !== '');
   
@@ -35,54 +47,112 @@ export const parseReweReceipt = (text: string): ParsedReweReceipt => {
     }
   };
 
-  // Parse store address (usually first two lines)
-  if (lines.length >= 2) {
-    receipt.storeAddress = `${lines[0].trim()} ${lines[1].trim()}`.replace(/\s+/g, ' ');
+  // Parse store address (usually first few lines)
+  const addressLines = [];
+  let currentLine = 0;
+  
+  // Find store address until we hit UID or EUR
+  while (currentLine < lines.length && 
+         !lines[currentLine].includes('UID') && 
+         !lines[currentLine].includes('EUR')) {
+    if (lines[currentLine].trim() !== '') {
+      addressLines.push(lines[currentLine].trim());
+    }
+    currentLine++;
   }
+  
+  receipt.storeAddress = addressLines.join(', ');
 
   // Parse items
-  let currentLine = 0;
-  while (currentLine < lines.length) {
-    const line = lines[currentLine];
+  let parsingItems = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    // Skip empty lines
+    if (!line) continue;
 
-    // Skip header lines until we find items
+    // Start parsing items after EUR line
     if (line.includes('EUR')) {
-      // Parse item lines
-      const itemMatch = line.match(/^(.+?)\s+([\d,]+)\s*([AB])\s*$/);
+      parsingItems = true;
+      continue;
+    }
+
+    // Stop parsing items when we hit the tax section
+    if (line.includes('Steuer') || line.includes('Geg.')) {
+      parsingItems = false;
+    }
+
+    if (parsingItems) {
+      // Skip lines that are clearly not items
+      if (line.startsWith('|') || line.startsWith('>') || line.includes('E-Bon')) {
+        continue;
+      }
+
+      // Match item pattern: name followed by price and tax rate
+      // More flexible pattern to handle various formats
+      const itemMatch = line.match(/^.*?(\d+[,\.]\d+)\s*([AB])\s*$/);
       if (itemMatch) {
-        const [, name, priceStr, taxRate] = itemMatch;
-        
-        // Parse quantity if available (e.g., "0.486 kg x 3,98 EUR/kg")
-        const quantityMatch = name.match(/(\d+,\d+)\s*kg\s*x\s*(\d+,\d+)\s*EUR\/kg/);
-        
-        const item: ReweReceiptItem = {
-          name: quantityMatch ? name.split(' x ')[0] : name.trim(),
-          totalPrice: parseFloat(priceStr.replace(',', '.')),
-          taxRate: taxRate as "A" | "B"
-        };
+        try {
+          const [fullLine, priceStr, taxRate] = itemMatch;
+          // Extract name by removing the price and tax rate from the end
+          let name = fullLine.substring(0, fullLine.lastIndexOf(priceStr)).trim();
+          let quantity: number | undefined;
+          let pricePerUnit: number | undefined;
 
-        if (quantityMatch) {
-          item.quantity = parseFloat(quantityMatch[1].replace(',', '.'));
-          item.pricePerUnit = parseFloat(quantityMatch[2].replace(',', '.'));
+          // Check for quantity pattern (e.g., "0,486 kg x 3,98 EUR/kg")
+          const quantityMatch = name.match(/(\d+,\d+)\s*kg\s*x\s*(\d+,\d+)\s*EUR\/kg/);
+          if (quantityMatch) {
+            quantity = parseFloat(quantityMatch[1].replace(',', '.'));
+            pricePerUnit = parseFloat(quantityMatch[2].replace(',', '.'));
+            // Remove the quantity part from the name
+            name = name.substring(0, name.indexOf(quantityMatch[0])).trim();
+          }
+
+          const price = parseFloat(priceStr.replace(',', '.'));
+          console.debug('[ReweParser] Determining category for item:', name);
+          const category = await determineCategory(name);
+          console.debug('[ReweParser] Category determined:', { item: name, category });
+
+          receipt.items.push({
+            name,
+            quantity,
+            pricePerUnit,
+            totalPrice: price,
+            taxRate,
+            category
+          });
+
+          // Update tax details
+          if (taxRate === 'A') {
+            receipt.taxDetails.taxRateA.gross += price;
+          } else {
+            receipt.taxDetails.taxRateB.gross += price;
+          }
+
+          // Increment category count
+          await incrementCategoryCount(category);
+        } catch (error) {
+          console.error('Error processing item:', line, error);
+          continue; // Skip this item and continue with the next one
         }
-
-        receipt.items.push(item);
       }
     }
 
-    // Parse total amount
-    if (line.includes('SUMME')) {
-      const totalMatch = line.match(/(\d+,\d+)/);
-      if (totalMatch) {
-        receipt.totalAmount = parseFloat(totalMatch[1].replace(',', '.'));
+    // Parse total amount from Gesamtbetrag line
+    if (line.includes('Gesantbetrag') || line.includes('Gesamtbetrag')) {
+      const amounts = line.match(/(\d+[.,]\d+)/g);
+      if (amounts && amounts.length >= 3) {
+        // Gesamtbetrag format is: net tax gross
+        // We want the gross amount (last number)
+        const grossAmount = amounts[amounts.length - 1];
+        receipt.totalAmount = parseFloat(grossAmount.replace(',', '.'));
       }
     }
 
     // Parse tax details
     if (line.includes('A= 19,0%')) {
-      const taxLine = lines[currentLine];
-      const values = taxLine.match(/(\d+,\d+)/g);
-      if (values && values.length >= 2) {
+      const values = line.match(/(\d+,\d+)/g);
+      if (values && values.length >= 3) {
         receipt.taxDetails.taxRateA = {
           rate: 19,
           net: parseFloat(values[0].replace(',', '.')),
@@ -93,9 +163,8 @@ export const parseReweReceipt = (text: string): ParsedReweReceipt => {
     }
 
     if (line.includes('B= 7,0%')) {
-      const taxLine = lines[currentLine];
-      const values = taxLine.match(/(\d+,\d+)/g);
-      if (values && values.length >= 2) {
+      const values = line.match(/(\d+,\d+)/g);
+      if (values && values.length >= 3) {
         receipt.taxDetails.taxRateB = {
           rate: 7,
           net: parseFloat(values[0].replace(',', '.')),
@@ -104,8 +173,13 @@ export const parseReweReceipt = (text: string): ParsedReweReceipt => {
         };
       }
     }
+  }
 
-    currentLine++;
+  // If total amount wasn't found in Gesamtbetrag line, calculate from tax details
+  if (receipt.totalAmount === 0) {
+    const taxATotal = receipt.taxDetails.taxRateA.gross || 0;
+    const taxBTotal = receipt.taxDetails.taxRateB.gross || 0;
+    receipt.totalAmount = taxATotal + taxBTotal;
   }
 
   return receipt;
