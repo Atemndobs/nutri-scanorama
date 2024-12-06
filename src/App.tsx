@@ -1,3 +1,4 @@
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Index from "@/pages/Index";
 import Settings from "@/pages/Settings";
@@ -6,6 +7,7 @@ import Categories from "@/pages/Categories";
 import { Navigation } from "@/components/Navigation";
 import { Header } from "@/components/Header";
 import { Toaster } from "@/components/ui/toaster";
+import { OfflineIndicator } from "@/components/OfflineIndicator";
 import "./App.css";
 
 function App() {
@@ -23,6 +25,7 @@ function App() {
         </main>
         <Navigation />
         <Toaster />
+        <OfflineIndicator />
       </div>
     </Router>
   );
