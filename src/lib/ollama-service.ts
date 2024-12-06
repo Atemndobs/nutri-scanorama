@@ -1,5 +1,5 @@
-const OLLAMA_ENDPOINT = "https://coolify.goose-neon.ts.net/";
-const OLLAMA_MODEL = "llama3.1:latest";
+const OLLAMA_ENDPOINT = "http:127.0.0.1:11434";
+const OLLAMA_MODEL = "llama3.2:1b";
 
 export interface ProcessedReceipt {
   storeName: string;

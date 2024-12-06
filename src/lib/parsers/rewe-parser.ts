@@ -1,12 +1,12 @@
 import type { CategoryName } from '@/types/categories';
 import { db } from '@/lib/db';
 
-interface ReweReceiptItem {
+interface ParsedReweItem {
   name: string;
   quantity?: number;
   pricePerUnit?: number;
   totalPrice: number;
-  taxRate: string; // Changed from "A" | "B" to string to fix type error
+  taxRate: string;
   category: CategoryName;
 }
 
@@ -14,7 +14,7 @@ interface ParsedReweReceipt {
   storeName: string;
   storeAddress: string;
   date: Date;
-  items: ReweReceiptItem[];
+  items: ParsedReweItem[];
   totalAmount: number;
   taxDetails: {
     taxRateA: { rate: number; net: number; tax: number; gross: number; };
@@ -109,8 +109,10 @@ export async function parseReweReceipt(text: string): Promise<ParsedReweReceipt>
           }
 
           const price = parseFloat(priceStr.replace(',', '.'));
+          
+          // Determine category using our new food-focused system
           console.debug('[ReweParser] Determining category for item:', name);
-          const category = await determineCategory(name);
+          const category = await db.determineCategory(name);
           console.debug('[ReweParser] Category determined:', { item: name, category });
 
           receipt.items.push({
