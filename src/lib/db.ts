@@ -6,6 +6,9 @@ export interface ReceiptItem {
   name: string;
   category: CategoryName;
   price: number;
+  quantity?: number;
+  pricePerUnit?: number;
+  taxRate: string;
   receiptId: number;
   date: Date;
 }
@@ -13,11 +16,17 @@ export interface ReceiptItem {
 export interface Receipt {
   id?: number;
   storeName: string;
+  storeAddress: string;
   imageData: string;
   uploadDate: Date;
+  purchaseDate: Date;
   processed: boolean;
   items?: ReceiptItem[];
-  totalAmount?: number;
+  totalAmount: number;
+  taxDetails: {
+    taxRateA: { rate: number; net: number; tax: number; gross: number; };
+    taxRateB: { rate: number; net: number; tax: number; gross: number; };
+  };
 }
 
 export interface Category {
@@ -42,11 +51,25 @@ export class NutriScanDB extends Dexie {
 
   constructor() {
     super('nutriscan');
-    this.version(4).stores({
-      receipts: '++id, storeName, uploadDate, processed',
-      items: '++id, receiptId, category, name',
+    this.version(5).stores({
+      receipts: '++id, storeName, storeAddress, uploadDate, purchaseDate, processed, totalAmount',
+      items: '++id, receiptId, category, name, taxRate, price, quantity, pricePerUnit',
       categories: '++id, name, itemCount, color',
       categoryMappings: '++id, keyword, category'
+    });
+
+    this.version(5).upgrade(tx => {
+      return tx.receipts.toCollection().modify(receipt => {
+        if (!receipt.storeAddress) receipt.storeAddress = '';
+        if (!receipt.purchaseDate) receipt.purchaseDate = receipt.uploadDate;
+        if (!receipt.taxDetails) {
+          receipt.taxDetails = {
+            taxRateA: { rate: 19, net: 0, tax: 0, gross: 0 },
+            taxRateB: { rate: 7, net: 0, tax: 0, gross: 0 }
+          };
+        }
+        if (typeof receipt.totalAmount !== 'number') receipt.totalAmount = 0;
+      });
     });
   }
 
@@ -62,6 +85,15 @@ export class NutriScanDB extends Dexie {
 
       // Keep category mappings intact
       // await this.categoryMappings.clear();
+    });
+  }
+
+  async deleteFailedScan(receiptId: number) {
+    await this.transaction('rw', this.receipts, this.items, async () => {
+      // Delete all items associated with this receipt
+      await this.items.where('receiptId').equals(receiptId).delete();
+      // Delete the receipt itself
+      await this.receipts.delete(receiptId);
     });
   }
 
