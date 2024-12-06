@@ -25,6 +25,7 @@ export interface Category {
   name: CategoryName;
   icon: string;
   itemCount: number;
+  color: string;
 }
 
 export interface CategoryMapping {
@@ -44,7 +45,7 @@ export class NutriScanDB extends Dexie {
     this.version(4).stores({
       receipts: '++id, storeName, uploadDate, processed',
       items: '++id, receiptId, category, name',
-      categories: '++id, name, itemCount',
+      categories: '++id, name, itemCount, color',
       categoryMappings: '++id, keyword, category'
     });
   }
@@ -98,42 +99,25 @@ export class NutriScanDB extends Dexie {
   async determineCategory(itemName: string): Promise<CategoryName> {
     console.debug('[DB] Starting category determination for:', itemName);
     const name = itemName.toLowerCase();
-    const mappings = await this.categoryMappings.toArray();
-    console.debug('[DB] Found category mappings:', mappings);
-    
-    // Find the first matching keyword
-    const match = mappings.find(mapping => {
-      const matches = name.includes(mapping.keyword.toLowerCase());
-      console.debug(`[DB] Checking "${name}" against keyword "${mapping.keyword.toLowerCase()}":`, matches);
-      return matches;
-    });
-    
-    if (match) {
-      console.debug('[DB] Found category match:', { item: name, keyword: match.keyword, category: match.category });
-      return match.category;
+
+    // First check direct mappings
+    const mapping = await this.categoryMappings
+      .where('keyword')
+      .equals(name)
+      .first();
+
+    if (mapping) {
+      console.debug('[DB] Found direct mapping:', mapping);
+      return mapping.category;
     }
 
-    // Default mappings for common items
-    console.debug('[DB] No direct mapping found, checking patterns');
-    if (name.includes('broccoli')) {
-      console.debug('[DB] Matched pattern: broccoli -> Vegetables');
-      return 'Vegetables';
-    }
-    if (name.includes('mango')) {
-      console.debug('[DB] Matched pattern: mango -> Fruits');
-      return 'Fruits';
-    }
-    if (name.includes('avocado')) {
-      console.debug('[DB] Matched pattern: avocado -> Vegetables');
-      return 'Vegetables';
-    }
-    if (name.includes('croissant') || name.includes('donut') || name.includes('pastel')) {
-      console.debug('[DB] Matched pattern: bakery item -> Bakery');
-      return 'Bakery';
-    }
-    if (name.includes('schenkel')) {
-      console.debug('[DB] Matched pattern: schenkel -> Meat');
-      return 'Meat';
+    // Then check if any keyword is included in the name
+    const mappings = await this.categoryMappings.toArray();
+    for (const mapping of mappings) {
+      if (name.includes(mapping.keyword)) {
+        console.debug('[DB] Found keyword match:', mapping);
+        return mapping.category;
+      }
     }
 
     console.debug('[DB] No category match found, returning Other for:', name);
@@ -141,23 +125,42 @@ export class NutriScanDB extends Dexie {
   }
 
   async recalculateCategoryCounts() {
-    console.debug('[DB] Starting category count recalculation');
     await this.transaction('rw', [this.items, this.categories], async () => {
-      // Get all items and count by category
-      const items = await this.items.toArray();
-      const counts = items.reduce((acc: Record<CategoryName, number>, item) => {
-        acc[item.category] = (acc[item.category] || 0) + 1;
-        return acc;
-      }, {} as Record<CategoryName, number>);
-
-      console.debug('[DB] Calculated counts:', counts);
-
-      // Update all categories
-      await this.categories.toCollection().modify(category => {
-        category.itemCount = counts[category.name] || 0;
+      // Reset all category counts to 0
+      await this.categories.toCollection().modify(cat => {
+        cat.itemCount = 0;
       });
 
-      console.debug('[DB] Category counts updated');
+      // Get all items
+      const items = await this.items.toArray();
+
+      // Count items per category
+      const counts: Record<CategoryName, number> = {
+        Fruits: 0,
+        Vegetables: 0,
+        Dairy: 0,
+        Meat: 0,
+        Bakery: 0,
+        Beverages: 0,
+        Snacks: 0,
+        Other: 0
+      };
+
+      items.forEach(item => {
+        counts[item.category] = (counts[item.category] || 0) + 1;
+      });
+
+      // Update category counts
+      await Promise.all(
+        Object.entries(counts).map(([category, count]) =>
+          this.categories
+            .where('name')
+            .equals(category)
+            .modify(cat => {
+              cat.itemCount = count;
+            })
+        )
+      );
     });
   }
 
@@ -178,17 +181,14 @@ db.on('ready', async () => {
   const categoriesCount = await db.categories.count();
   if (categoriesCount === 0) {
     await db.categories.bulkAdd([
-      { name: 'Groceries', icon: 'shopping-cart', itemCount: 0 },
-      { name: 'Beverages', icon: 'coffee', itemCount: 0 },
-      { name: 'Snacks', icon: 'cookie', itemCount: 0 },
-      { name: 'Household', icon: 'home', itemCount: 0 },
-      { name: 'Fruits', icon: 'apple', itemCount: 0 },
-      { name: 'Vegetables', icon: 'carrot', itemCount: 0 },
-      { name: 'Dairy', icon: 'milk', itemCount: 0 },
-      { name: 'Meat', icon: 'beef', itemCount: 0 },
-      { name: 'Bakery', icon: 'croissant', itemCount: 0 },
-      { name: 'Personal Care', icon: 'bath', itemCount: 0 },
-      { name: 'Other', icon: 'grid', itemCount: 0 }
+      { name: 'Fruits', icon: 'apple', itemCount: 0, color: '#4CAF50' },
+      { name: 'Vegetables', icon: 'carrot', itemCount: 0, color: '#8BC34A' },
+      { name: 'Dairy', icon: 'milk', itemCount: 0, color: '#FFC107' },
+      { name: 'Meat', icon: 'beef', itemCount: 0, color: '#F44336' },
+      { name: 'Bakery', icon: 'croissant', itemCount: 0, color: '#9C27B0' },
+      { name: 'Beverages', icon: 'coffee', itemCount: 0, color: '#2196F3' },
+      { name: 'Snacks', icon: 'cookie', itemCount: 0, color: '#FF9800' },
+      { name: 'Other', icon: 'grid', itemCount: 0, color: '#9E9E9E' }
     ]);
   }
 
@@ -197,44 +197,83 @@ db.on('ready', async () => {
   if (mappingsCount === 0) {
     await db.categoryMappings.bulkAdd([
       // Fruits
-      { keyword: 'mango', category: 'Fruits' },
       { keyword: 'apfel', category: 'Fruits' },
       { keyword: 'banane', category: 'Fruits' },
       { keyword: 'orange', category: 'Fruits' },
+      { keyword: 'mango', category: 'Fruits' },
+      { keyword: 'birne', category: 'Fruits' },
+      { keyword: 'kiwi', category: 'Fruits' },
+      { keyword: 'beere', category: 'Fruits' },
+      { keyword: 'erdbeere', category: 'Fruits' },
+      { keyword: 'himbeere', category: 'Fruits' },
+      { keyword: 'blaubeere', category: 'Fruits' },
+      { keyword: 'ananas', category: 'Fruits' },
+      { keyword: 'zitrone', category: 'Fruits' },
+      { keyword: 'limette', category: 'Fruits' },
       // Vegetables
-      { keyword: 'broccoli', category: 'Vegetables' },
       { keyword: 'karotte', category: 'Vegetables' },
       { keyword: 'salat', category: 'Vegetables' },
       { keyword: 'tomate', category: 'Vegetables' },
-      { keyword: 'avocado', category: 'Vegetables' },
+      { keyword: 'gurke', category: 'Vegetables' },
+      { keyword: 'broccoli', category: 'Vegetables' },
+      { keyword: 'paprika', category: 'Vegetables' },
+      { keyword: 'zwiebel', category: 'Vegetables' },
+      { keyword: 'kartoffel', category: 'Vegetables' },
+      { keyword: 'spinat', category: 'Vegetables' },
+      { keyword: 'kohl', category: 'Vegetables' },
+      { keyword: 'zucchini', category: 'Vegetables' },
+      { keyword: 'aubergine', category: 'Vegetables' },
+      { keyword: 'pilz', category: 'Vegetables' },
       // Dairy
       { keyword: 'milch', category: 'Dairy' },
       { keyword: 'joghurt', category: 'Dairy' },
       { keyword: 'käse', category: 'Dairy' },
+      { keyword: 'butter', category: 'Dairy' },
+      { keyword: 'sahne', category: 'Dairy' },
+      { keyword: 'quark', category: 'Dairy' },
+      { keyword: 'frischkäse', category: 'Dairy' },
+      { keyword: 'schmand', category: 'Dairy' },
+      { keyword: 'mozarella', category: 'Dairy' },
       // Meat
       { keyword: 'fleisch', category: 'Meat' },
       { keyword: 'wurst', category: 'Meat' },
       { keyword: 'schinken', category: 'Meat' },
-      { keyword: 'spiessbraten', category: 'Meat' },
-      { keyword: 'schenkel', category: 'Meat' },
+      { keyword: 'hähnchen', category: 'Meat' },
+      { keyword: 'rind', category: 'Meat' },
+      { keyword: 'schwein', category: 'Meat' },
+      { keyword: 'fisch', category: 'Meat' },
+      { keyword: 'lachs', category: 'Meat' },
+      { keyword: 'thunfisch', category: 'Meat' },
+      { keyword: 'salami', category: 'Meat' },
       // Bakery
       { keyword: 'brot', category: 'Bakery' },
       { keyword: 'brötchen', category: 'Bakery' },
       { keyword: 'croissant', category: 'Bakery' },
-      { keyword: 'donut', category: 'Bakery' },
-      { keyword: 'pastel', category: 'Bakery' },
+      { keyword: 'kuchen', category: 'Bakery' },
+      { keyword: 'gebäck', category: 'Bakery' },
+      { keyword: 'toast', category: 'Bakery' },
+      { keyword: 'brezel', category: 'Bakery' },
       // Beverages
       { keyword: 'wasser', category: 'Beverages' },
       { keyword: 'saft', category: 'Beverages' },
+      { keyword: 'cola', category: 'Beverages' },
+      { keyword: 'bier', category: 'Beverages' },
+      { keyword: 'wein', category: 'Beverages' },
+      { keyword: 'tee', category: 'Beverages' },
+      { keyword: 'kaffee', category: 'Beverages' },
+      { keyword: 'limonade', category: 'Beverages' },
+      { keyword: 'smoothie', category: 'Beverages' },
       // Snacks
       { keyword: 'chips', category: 'Snacks' },
+      { keyword: 'nüsse', category: 'Snacks' },
       { keyword: 'schokolade', category: 'Snacks' },
-      // Household
-      { keyword: 'papier', category: 'Household' },
-      { keyword: 'reiniger', category: 'Household' },
-      // Personal Care
-      { keyword: 'seife', category: 'Personal Care' },
-      { keyword: 'shampoo', category: 'Personal Care' }
+      { keyword: 'keks', category: 'Snacks' },
+      { keyword: 'süßigkeit', category: 'Snacks' },
+      { keyword: 'bonbon', category: 'Snacks' },
+      { keyword: 'gummibär', category: 'Snacks' },
+      { keyword: 'riegel', category: 'Snacks' },
+      { keyword: 'popcorn', category: 'Snacks' },
+      { keyword: 'cracker', category: 'Snacks' }
     ]);
   }
 });
