@@ -4,6 +4,7 @@ import { Upload } from "lucide-react";
 import { db } from "@/lib/db";
 import { useToast } from "@/hooks/use-toast";
 import { parseReweReceipt } from "@/lib/parsers/rewe-parser";
+import { parseOliverFrankReceipt } from "@/lib/parsers/oliver-frank-parser";
 import Tesseract from 'tesseract.js';
 
 export const UploadButton = () => {
@@ -46,20 +47,55 @@ export const UploadButton = () => {
             }
           );
 
-          // Parse the extracted text using our custom REWE parser
-          const parsedData = parseReweReceipt(result.data.text);
+          // Log the raw extracted text
+          console.log('Raw Extracted Text:', result.data.text);
+
+          // Determine which parser to use based on the content
+          const isOliverFrank = result.data.text.includes('Oliver Frank');
+          
+          // Parse the extracted text using the appropriate parser
+          const parsedData = await (isOliverFrank 
+            ? parseOliverFrankReceipt(result.data.text)
+            : parseReweReceipt(result.data.text));
+
           const currentDate = new Date();
           
+          // Create items array
+          const items = await Promise.all(parsedData.items.map(async item => ({
+            name: item.name,
+            category: await db.determineCategory(item.name),
+            price: item.totalPrice,
+            receiptId: receiptId,
+            date: currentDate
+          })));
+
+          // Update category counts
+          const categoryUpdates = items.reduce((acc: Record<CategoryName, number>, item) => {
+            acc[item.category] = (acc[item.category] || 0) + 1;
+            return acc;
+          }, {} as Record<CategoryName, number>);
+
+          // Save items and update category counts in a transaction
+          await db.transaction('rw', [db.items, db.categories], async () => {
+            // Save items to items table
+            await db.items.bulkAdd(items);
+
+            // Update category counts
+            await Promise.all(
+              Object.entries(categoryUpdates).map(([category, count]) =>
+                db.categories
+                  .where('name')
+                  .equals(category)
+                  .modify(cat => {
+                    cat.itemCount = (cat.itemCount || 0) + count;
+                  })
+              )
+            );
+          });
+
           // Update receipt with processed data
           await db.receipts.update(receiptId, {
             storeName: parsedData.storeName,
-            items: parsedData.items.map(item => ({
-              name: item.name,
-              category: item.taxRate === 'B' ? 'Food' : 'Other',
-              price: item.totalPrice,
-              receiptId: receiptId,
-              date: currentDate
-            })),
             totalAmount: parsedData.totalAmount,
             processed: true
           });
