@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { useToast } from "@/hooks/use-toast";
 import { parseReweReceipt } from "@/lib/parsers/rewe-parser";
 import { parseOliverFrankReceipt } from "@/lib/parsers/oliver-frank-parser";
+import { ReceiptValidationError } from "@/lib/parsers/errors";
 import Tesseract from 'tesseract.js';
 import type { CategoryName } from "@/types/categories";
 
@@ -28,9 +29,16 @@ export const UploadButton = () => {
         // Store initial receipt in IndexedDB
         const receiptId = await db.receipts.add({
           storeName: "Processing...",
+          storeAddress: "",
           imageData: base64String,
           uploadDate: new Date(),
-          processed: false
+          purchaseDate: new Date(),
+          processed: false,
+          totalAmount: 0,
+          taxDetails: {
+            taxRateA: { rate: 19, net: 0, tax: 0, gross: 0 },
+            taxRateB: { rate: 7, net: 0, tax: 0, gross: 0 }
+          }
         });
 
         toast({
@@ -56,62 +64,65 @@ export const UploadButton = () => {
           
           // Parse the extracted text using the appropriate parser
           const parsedData = await (isOliverFrank 
-            ? parseOliverFrankReceipt(result.data.text)
-            : parseReweReceipt(result.data.text));
+            ? parseOliverFrankReceipt(result.data.text, receiptId)
+            : parseReweReceipt(result.data.text, receiptId));
 
-          const currentDate = new Date();
-          
-          // Create items array
+          // Create items array with all fields
           const items = await Promise.all(parsedData.items.map(async item => ({
             name: item.name,
             category: await db.determineCategory(item.name),
             price: item.totalPrice,
+            quantity: item.quantity,
+            pricePerUnit: item.pricePerUnit,
+            taxRate: item.taxRate,
             receiptId: receiptId,
-            date: currentDate
+            date: parsedData.date
           })));
 
-          // Update category counts
-          const categoryUpdates = items.reduce((acc: Record<CategoryName, number>, item) => {
-            acc[item.category] = (acc[item.category] || 0) + 1;
-            return acc;
-          }, {} as Record<CategoryName, number>);
-
-          // Save items and update category counts in a transaction
-          await db.transaction('rw', [db.items, db.categories], async () => {
-            // Save items to items table
-            await db.items.bulkAdd(items);
-
-            // Update category counts
-            await Promise.all(
-              Object.entries(categoryUpdates).map(([category, count]) =>
-                db.categories
-                  .where('name')
-                  .equals(category)
-                  .modify(cat => {
-                    cat.itemCount = (cat.itemCount || 0) + count;
-                  })
-              )
-            );
-          });
-
-          // Update receipt with processed data
+          // Update receipt with parsed data
           await db.receipts.update(receiptId, {
             storeName: parsedData.storeName,
+            storeAddress: parsedData.storeAddress || "",
+            purchaseDate: parsedData.date,
+            processed: true,
             totalAmount: parsedData.totalAmount,
-            processed: true
+            taxDetails: {
+              taxRateA: 'taxRateA' in parsedData.taxDetails ? parsedData.taxDetails.taxRateA : { rate: 0, net: 0, tax: 0, gross: 0 },
+              taxRateB: 'taxRateB' in parsedData.taxDetails ? parsedData.taxDetails.taxRateB : { rate: 0, net: 0, tax: 0, gross: 0 },
+            }
           });
+
+          // Add all items to database
+          await db.items.bulkAdd(items);
 
           toast({
             title: "Receipt processed",
-            description: "Receipt data has been extracted successfully",
+            description: `Successfully processed ${items.length} items from ${parsedData.storeName}. Total: €${parsedData.totalAmount.toFixed(2)}`,
           });
         } catch (error) {
           console.error('Error processing receipt:', error);
-          toast({
-            title: "Processing failed",
-            description: "Failed to extract receipt data. Please try again.",
-            variant: "destructive",
-          });
+          
+          // Handle validation errors specifically
+          if (error instanceof ReceiptValidationError) {
+            toast({
+              title: "Receipt processing failed",
+              description: error.message,
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Error",
+              description: "Failed to process receipt. Please try again.",
+              variant: "destructive",
+            });
+          }
+
+          // Delete the failed receipt
+          try {
+            await db.deleteFailedScan(receiptId);
+          } catch (deleteError) {
+            console.error('Error deleting failed scan:', deleteError);
+          }
         }
 
         // Reset file input
@@ -138,23 +149,22 @@ export const UploadButton = () => {
   };
 
   return (
-    <>
+    <div className="w-full">
       <input
         type="file"
         ref={fileInputRef}
         onChange={handleFileUpload}
         accept="image/*"
         className="hidden"
+        aria-label="Upload image"
       />
       <Button
         onClick={handleClick}
         disabled={isUploading}
         className="w-full bg-gradient-to-r from-nutri-purple to-nutri-pink text-white hover:opacity-90 transition-opacity"
-        size="lg"
       >
-        <Upload className="mr-2 h-4 w-4" />
-        {isUploading ? "Processing..." : "Upload Receipt"}
+        <Upload className="mr-2" /> Upload
       </Button>
-    </>
+    </div>
   );
 };

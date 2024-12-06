@@ -1,3 +1,6 @@
+import { validateAndCalculateTotal, extractCommonDate, cleanPrice } from './receipt-utils';
+import { ReceiptValidationError } from './errors';
+
 interface OliverFrankReceiptItem {
   name: string;
   quantity?: number;
@@ -17,7 +20,7 @@ interface ParsedOliverFrankReceipt {
   };
 }
 
-export const parseOliverFrankReceipt = (text: string): ParsedOliverFrankReceipt => {
+export const parseOliverFrankReceipt = async (text: string, receiptId: number): Promise<ParsedOliverFrankReceipt> => {
   // Split text into lines and remove empty lines
   const lines = text.split('\n').filter(line => line.trim() !== '');
   
@@ -25,7 +28,7 @@ export const parseOliverFrankReceipt = (text: string): ParsedOliverFrankReceipt 
   const receipt: ParsedOliverFrankReceipt = {
     storeName: 'Oliver Frank',
     storeAddress: '',
-    date: new Date(),
+    date: extractCommonDate(lines) || new Date(),
     items: [],
     totalAmount: 0,
     taxDetails: {
@@ -83,7 +86,7 @@ export const parseOliverFrankReceipt = (text: string): ParsedOliverFrankReceipt 
 
         const item: OliverFrankReceiptItem = {
           name,
-          totalPrice: parseFloat(priceStr.replace(',', '.')),
+          totalPrice: cleanPrice(priceStr),
           taxRate: taxRate as "B"
         };
 
@@ -117,6 +120,33 @@ export const parseOliverFrankReceipt = (text: string): ParsedOliverFrankReceipt 
         };
       }
     }
+  }
+
+  // After parsing all items, validate and calculate total
+  try {
+    const { total, method } = validateAndCalculateTotal(lines, receipt.items);
+    receipt.totalAmount = total;
+
+    // Update tax details based on total if we had to calculate it
+    if (method === 'calculated') {
+      const netAmount = total / 1.07; // Oliver Frank uses 7% VAT
+      receipt.taxDetails.taxRateB = {
+        rate: 7,
+        net: netAmount,
+        tax: total - netAmount,
+        gross: total
+      };
+    }
+  } catch (error) {
+    if (error instanceof ReceiptValidationError) {
+      throw error;
+    }
+    throw new ReceiptValidationError('Failed to process receipt data');
+  }
+
+  // Validate receipt has required data
+  if (!receipt.items.length) {
+    throw new ReceiptValidationError('No valid items found in receipt');
   }
 
   return receipt;
