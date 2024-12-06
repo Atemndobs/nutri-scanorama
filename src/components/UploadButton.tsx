@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Upload } from "lucide-react";
+import { Upload, Camera } from "lucide-react";
 import { db } from "@/lib/db";
 import { useToast } from "@/hooks/use-toast";
 import { parseReweReceipt } from "@/lib/parsers/rewe-parser";
@@ -11,6 +11,7 @@ import type { CategoryName } from "@/types/categories";
 
 export const UploadButton = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const [isUploading, setIsUploading] = useState(false);
 
@@ -129,6 +130,9 @@ export const UploadButton = () => {
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
         }
+        if (cameraInputRef.current) {
+          cameraInputRef.current.value = "";
+        }
       };
 
       reader.readAsDataURL(file);
@@ -144,12 +148,16 @@ export const UploadButton = () => {
     }
   };
 
+  const handleScan = () => {
+    cameraInputRef.current?.click();
+  };
+
   const handleClick = () => {
     fileInputRef.current?.click();
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full space-y-2">
       <input
         type="file"
         ref={fileInputRef}
@@ -158,13 +166,31 @@ export const UploadButton = () => {
         className="hidden"
         aria-label="Upload image"
       />
-      <Button
-        onClick={handleClick}
-        disabled={isUploading}
-        className="w-full bg-gradient-to-r from-nutri-purple to-nutri-pink text-white hover:opacity-90 transition-opacity"
-      >
-        <Upload className="mr-2" /> Upload
-      </Button>
+      <input
+        type="file"
+        ref={cameraInputRef}
+        onChange={handleFileUpload}
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        aria-label="Take photo"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <Button
+          onClick={handleScan}
+          disabled={isUploading}
+          className="bg-gradient-to-r from-nutri-purple to-nutri-pink text-white hover:opacity-90 transition-opacity"
+        >
+          <Camera className="mr-2 h-4 w-4" /> Scan
+        </Button>
+        <Button
+          onClick={handleClick}
+          disabled={isUploading}
+          className="bg-gradient-to-r from-nutri-purple to-nutri-pink text-white hover:opacity-90 transition-opacity"
+        >
+          <Upload className="mr-2 h-4 w-4" /> Upload
+        </Button>
+      </div>
     </div>
   );
 };
