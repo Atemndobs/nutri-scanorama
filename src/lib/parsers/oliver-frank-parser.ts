@@ -1,12 +1,9 @@
-import type { CategoryName } from '@/types/categories';
-import { db } from '@/lib/db';
-
 interface OliverFrankReceiptItem {
   name: string;
   quantity?: number;
   pricePerUnit?: number;
   totalPrice: number;
-  category: CategoryName;
+  taxRate: "B"; // Oliver Frank seems to only use B = 7% tax rate
 }
 
 interface ParsedOliverFrankReceipt {
@@ -15,9 +12,12 @@ interface ParsedOliverFrankReceipt {
   date: Date;
   items: OliverFrankReceiptItem[];
   totalAmount: number;
+  taxDetails: {
+    taxRateB: { rate: number; net: number; tax: number; gross: number; };
+  };
 }
 
-export async function parseOliverFrankReceipt(text: string): Promise<ParsedOliverFrankReceipt> {
+export const parseOliverFrankReceipt = (text: string): ParsedOliverFrankReceipt => {
   // Split text into lines and remove empty lines
   const lines = text.split('\n').filter(line => line.trim() !== '');
   
@@ -27,60 +27,97 @@ export async function parseOliverFrankReceipt(text: string): Promise<ParsedOlive
     storeAddress: '',
     date: new Date(),
     items: [],
-    totalAmount: 0
+    totalAmount: 0,
+    taxDetails: {
+      taxRateB: { rate: 7, net: 0, tax: 0, gross: 0 }
+    }
   };
 
+  // Parse store address (usually first few lines)
+  const addressLines = [];
+  let currentLine = 0;
+  
+  // Find store address until we hit Tel.
+  while (currentLine < lines.length && !lines[currentLine].includes('Tel.')) {
+    if (lines[currentLine].trim() !== '') {
+      // Clean up address lines
+      const cleanedLine = lines[currentLine]
+        .replace('_', '') // Remove underscores
+        .trim();
+      if (cleanedLine) {
+        addressLines.push(cleanedLine);
+      }
+    }
+    currentLine++;
+  }
+  
+  receipt.storeAddress = addressLines.join(', ');
+
   // Parse items
-  let parsingItems = false;
+  let parsingItems = true;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     
-    // Skip empty lines
-    if (!line) continue;
+    // Skip empty lines or lines with underscores
+    if (!line || line === '_') continue;
 
-    // Start parsing items after the header section
-    if (line.includes('EUR')) {
-      parsingItems = true;
+    // Stop parsing items when we hit the SUMME or tax section
+    if (line.includes('SUMME') || line.includes('Steuer %')) {
+      parsingItems = false;
       continue;
     }
 
-    // Stop parsing when we hit the totals section
-    if (line.toLowerCase().includes('summe') || line.toLowerCase().includes('gesamt')) {
-      parsingItems = false;
-      
-      // Try to extract total amount
-      const totalMatch = line.match(/(\d+[.,]\d{2})/);
+    if (parsingItems && !line.includes('Tel.')) {
+      // Match item pattern: name followed by price and tax rate
+      // Format: NAME PRICE B
+      const itemMatch = line.match(/^(.+?)\s+([\d,]+)\s*([B])\s*$/);
+      if (itemMatch) {
+        const [, rawName, priceStr, taxRate] = itemMatch;
+        let name = rawName.trim();
+
+        // Clean up common OCR artifacts
+        name = name
+          .replace(/[|>©_]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        const item: OliverFrankReceiptItem = {
+          name,
+          totalPrice: parseFloat(priceStr.replace(',', '.')),
+          taxRate: taxRate as "B"
+        };
+
+        receipt.items.push(item);
+      } else if (line.match(/^[A-Z]/)) {
+        // Handle items without price (continuation from previous line or special items)
+        const lastItem = receipt.items[receipt.items.length - 1];
+        if (lastItem) {
+          lastItem.name = `${lastItem.name} ${line}`.trim();
+        }
+      }
+    }
+
+    // Parse total amount
+    if (line.includes('Geg. VISA EUR')) {
+      const totalMatch = line.match(/(\d+,\d+)/);
       if (totalMatch) {
         receipt.totalAmount = parseFloat(totalMatch[1].replace(',', '.'));
       }
     }
 
-    if (parsingItems) {
-      // Match price pattern at the end of the line
-      const priceMatch = line.match(/(.*?)\s+(\d+[.,]\d{2})\s*$/);
-      if (priceMatch) {
-        const [, itemName, priceStr] = priceMatch;
-        const price = parseFloat(priceStr.replace(',', '.'));
-        
-        try {
-          const category = await db.determineCategory(itemName.trim());
-          receipt.items.push({
-            name: itemName.trim(),
-            totalPrice: price,
-            category
-          });
-        } catch (error) {
-          console.error('Error processing item:', itemName, error);
-          continue;
-        }
+    // Parse tax details
+    if (line.includes('B= 7,0%')) {
+      const values = line.match(/(\d+,\d+)/g);
+      if (values && values.length >= 3) {
+        receipt.taxDetails.taxRateB = {
+          rate: 7,
+          net: parseFloat(values[0].replace(',', '.')),
+          tax: parseFloat(values[1].replace(',', '.')),
+          gross: parseFloat(values[2].replace(',', '.'))
+        };
       }
     }
   }
 
-  // If total amount wasn't found, calculate from items
-  if (receipt.totalAmount === 0) {
-    receipt.totalAmount = receipt.items.reduce((sum, item) => sum + item.totalPrice, 0);
-  }
-
   return receipt;
-}
+};
