@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Calendar, ShoppingCart, Flame } from "lucide-react";
 
 interface Item {
   id?: number;
@@ -201,7 +202,7 @@ export const ItemsPage = () => {
 
   if (!parsedReceiptId || isNaN(parsedReceiptId)) {
     return (
-      <div className="container max-w-2xl mx-auto p-4">
+      <div className="container max-w-md mx-auto p-4">
         <div className="flex items-center space-x-4">
           <Button
             variant="ghost"
@@ -219,7 +220,7 @@ export const ItemsPage = () => {
 
   if (!receipt) {
     return (
-      <div className="container max-w-2xl mx-auto p-4">
+      <div className="container max-w-md mx-auto p-4">
         <div className="flex items-center space-x-4">
           <Button
             variant="ghost"
@@ -236,8 +237,8 @@ export const ItemsPage = () => {
   }
 
   return (
-    <div className="h-[calc(100vh-4rem)] overflow-y-auto bg-background">
-      <div className="container max-w-2xl mx-auto px-2">
+    <div className="h-[calc(100vh-4rem)] overflow-hidden bg-background">
+      <div className="container max-w-md mx-auto px-2">
         <div className="flex items-center justify-between py-2">
           <div className="flex items-center space-x-2">
             <Button
@@ -248,11 +249,36 @@ export const ItemsPage = () => {
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <div>
-              <h1 className="font-semibold">{receipt?.storeName || 'Receipt Items'}</h1>
-              <p className="text-xs text-muted-foreground">
-                {receipt && new Date(receipt.uploadDate).toLocaleDateString()}
-              </p>
+            <div className="flex-1">
+              <h1 className="font-semibold flex items-center whitespace-nowrap">
+                {receipt?.storeName}
+                {receipt?.storeAddress && (
+                  <span className="ml-2 text-xs text-muted-foreground truncate" style={{ maxWidth: '200px' }}>
+                    {receipt.storeAddress}
+                  </span>
+                )}
+              </h1>
+              <div className="flex items-center space-x-2 text-xs text-muted-foreground">
+                <span>
+                  <Calendar className="w-3 h-3 text-blue-500 mr-1 inline" />
+                  {new Date(receipt.uploadDate).toLocaleDateString('de-DE', {
+                    day: 'numeric',
+                    month: '2-digit',
+                    year: '2-digit'
+                  })}
+                </span>
+                <span>
+                  <ShoppingCart className="w-3 h-3 text-green-500 ml-1 inline" />
+                  <span className="ml-1">{items?.length || 0}</span>
+                </span>
+                <span>
+                  €{receipt.totalAmount?.toFixed(2)}
+                </span>
+                <span>
+                  <Flame className="w-3 h-3 text-orange-500 mr-1 inline" />
+                  2000 kcal
+                </span>
+              </div>
             </div>
           </div>
         </div>
