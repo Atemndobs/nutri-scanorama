@@ -1,5 +1,6 @@
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export const Header = () => {
   return (
@@ -10,9 +11,12 @@ export const Header = () => {
         </h1>
         <p className="text-sm text-muted-foreground">Track your purchases</p>
       </div>
-      <Button variant="ghost" size="icon">
-        <Bell className="h-5 w-5" />
-      </Button>
+      <div className="flex items-center">
+        <ThemeToggle />
+        <Button variant="ghost" size="icon">
+          <Bell className="h-5 w-5" />
+        </Button>
+      </div>
     </header>
   );
 };

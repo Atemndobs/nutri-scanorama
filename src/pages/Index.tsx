@@ -1,6 +1,7 @@
 import { RecentScans } from "@/components/RecentScans";
 import { TopCategories } from "@/components/TopCategories";
 import { UploadButton } from "@/components/UploadButton";
+import { ScannedItemsPreview } from "@/components/ScannedItemsPreview";
 
 const Index = () => {
   return (
@@ -8,6 +9,7 @@ const Index = () => {
       <TopCategories />
       <UploadButton />
       <RecentScans />
+      <ScannedItemsPreview />
     </div>
   );
 };
