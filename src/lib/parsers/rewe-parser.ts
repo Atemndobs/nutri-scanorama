@@ -6,7 +6,7 @@ interface ReweReceiptItem {
   quantity?: number;
   pricePerUnit?: number;
   totalPrice: number;
-  taxRate: "A" | "B"; // In Germany, A = 19%, B = 7%
+  taxRate: string; // Changed from "A" | "B" to string to fix type error
   category: CategoryName;
 }
 

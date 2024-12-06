@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { parseReweReceipt } from "@/lib/parsers/rewe-parser";
 import { parseOliverFrankReceipt } from "@/lib/parsers/oliver-frank-parser";
 import Tesseract from 'tesseract.js';
+import type { CategoryName } from "@/types/categories";
 
 export const UploadButton = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
