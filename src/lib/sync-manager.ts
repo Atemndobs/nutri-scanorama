@@ -1,9 +1,9 @@
-import { db } from './db';
+import { db, Receipt, ReceiptItem, Category, CategoryMapping } from './db';
 
 interface PendingSync {
   type: 'create' | 'update' | 'delete';
   table: string;
-  data: any;
+  data: Receipt | ReceiptItem | Category | CategoryMapping;
   timestamp: number;
 }
 
