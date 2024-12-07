@@ -34,7 +34,18 @@ export const UploadButton = () => {
       reader.onloadend = async () => {
         const base64String = reader.result as string;
         
-        // Store initial receipt in IndexedDB
+        // Use Tesseract.js to extract text from the image
+        const result = await Tesseract.recognize(
+          base64String,
+          'deu', // German language
+          {
+            logger: m => console.log(m)
+          }
+        );
+
+        console.log('Raw Extracted Text:', result.data.text);
+        
+        // Create initial receipt record
         const receiptId = await db.receipts.add({
           storeName: "Processing...",
           storeAddress: "",
@@ -43,6 +54,7 @@ export const UploadButton = () => {
           purchaseDate: new Date(),
           processed: false,
           totalAmount: 0,
+          text: result.data.text, // Save the OCR text
           taxDetails: {
             taxRateA: { rate: 19, net: 0, tax: 0, gross: 0 },
             taxRateB: { rate: 7, net: 0, tax: 0, gross: 0 }
@@ -55,16 +67,6 @@ export const UploadButton = () => {
         });
 
         try {
-          // Use Tesseract.js to extract text from the image
-          const result = await Tesseract.recognize(
-            base64String,
-            'deu', // German language
-            {
-              logger: m => console.log(m)
-            }
-          );
-
-          console.log('Raw Extracted Text:', result.data.text);
           console.log('Lowercase Text:', result.data.text.toLowerCase());
 
           // Determine which parser to use based on the content

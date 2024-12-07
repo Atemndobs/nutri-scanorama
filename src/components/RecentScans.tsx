@@ -27,6 +27,8 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
   const [isCategoryManagerOpen, setCategoryManagerOpen] = useState(false); // Add state for CategoryManager visibility
   const [selectedItem, setSelectedItem] = useState<ReceiptItem | null>(null); // Add state for selected item
   const [isAiExtracting, setIsAiExtracting] = useState(false);
+  const [processingReceiptId, setProcessingReceiptId] = useState<number | null>(null);
+  const [extractionAttempts, setExtractionAttempts] = useState<Record<string, number>>({});
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -161,20 +163,55 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
 
   const handleAiExtraction = async (receipt: Receipt) => {
     if (!receipt.id) return;
-    
     try {
       setIsAiExtracting(true);
       
-      // Call Ollama service to extract items
-      const extractedItems = await ollamaService.extractItems(receipt.text || '');
-      console.debug('[RecentScans] AI Extracted Items:', extractedItems);
+      // Track attempts for this receipt
+      const currentAttempts = (extractionAttempts[receipt.id] || 0) + 1;
+      setExtractionAttempts(prev => ({ ...prev, [receipt.id]: currentAttempts }));
 
-      if (!extractedItems?.items?.length) {
-        throw new Error('No items extracted by AI');
+      console.log('[RecentScans] Starting AI extraction for receipt:', receipt.id);
+      console.log('[RecentScans] Receipt data:', receipt);
+      
+      if (!receipt.text) {
+        console.error('[RecentScans] Receipt text is empty');
+        throw new Error('Receipt text is empty');
       }
 
+      console.log('[RecentScans] Using receipt text:', receipt.text);
+      
+      // Call Ollama service to process receipt
+      const processedReceipt = await ollamaService.processReceipt(receipt.text);
+      console.debug('[RecentScans] AI Processed Receipt:', processedReceipt);
+
+      if (!processedReceipt?.items || processedReceipt.items.length === 0) {
+        if (currentAttempts >= 3) {
+          toast({
+            title: 'Extraction failed',
+            description: 'Unable to extract items after multiple attempts. Please try a different receipt or contact support.',
+            status: 'error',
+            duration: 7000,
+            isClosable: true,
+          });
+          // Reset attempts for this receipt
+          setExtractionAttempts(prev => ({ ...prev, [receipt.id]: 0 }));
+        } else {
+          toast({
+            title: 'No items found',
+            description: `Please try scanning the receipt again (Attempt ${currentAttempts}/3)`,
+            status: 'warning',
+            duration: 5000,
+            isClosable: true,
+          });
+        }
+        return;
+      }
+
+      // Success - reset attempts and process items
+      setExtractionAttempts(prev => ({ ...prev, [receipt.id]: 0 }));
+
       // Process each extracted item
-      const processedItems = await Promise.all(extractedItems.items.map(async (item) => {
+      const processedItems = await Promise.all(processedReceipt.items.map(async (item) => {
         const category = await db.determineCategory(item.name);
         return {
           name: item.name,
@@ -182,6 +219,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
           receiptId: receipt.id!,
           timestamp: Date.now(),
           price: item.pricePerUnit || item.totalPrice || 0,
+          totalPrice: item.totalPrice || 0, // Add totalPrice to the processed items
           date: new Date(Date.now()),
           taxRate: '0.1', // Convert taxRate to string format
         };
@@ -212,11 +250,14 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
       console.error('[RecentScans] AI extraction failed:', error);
       toast({
         title: "Error",
-        description: "Failed to extract items using AI",
-        variant: "destructive",
+        description: "An error occurred while processing the receipt. Please try again.",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
       });
     } finally {
       setIsAiExtracting(false);
+      setProcessingReceiptId(null);
     }
   };
 
@@ -246,10 +287,10 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                     {receipt.storeName}
                     {receipt.processed && receipt.discrepancyDetected && (
                       <>
-                        <Badge variant="outline" className="flex items-center gap-1 text-muted-foreground">
+                        {/* <Badge variant="outline" className="flex items-center gap-1 text-muted-foreground">
                           <AlertTriangle className="h-3 w-3 text-destructive" />
                           Items Missing
-                        </Badge>
+                        </Badge> */}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -261,8 +302,12 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                           disabled={isAiExtracting}
                         >
                           <Badge variant="secondary" className="text-[10px] px-1 py-0 flex items-center gap-1">
-                            <Wand2 className="h-3 w-3 text-purple-500" />
-                            Try AI
+                            {processingReceiptId === receipt.id ? (
+                              <Loader className="h-3 w-3 animate-spin text-purple-500" />
+                            ) : (
+                              <Wand2 className="h-3 w-3 text-purple-500" />
+                            )}
+                            <span>{processingReceiptId === receipt.id ? 'Processing...' : 'Try AI'}</span>
                           </Badge>
                         </Button>
                       </>
