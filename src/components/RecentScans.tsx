@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Receipt as ReceiptIcon, ShoppingBag, Flame, Calendar, ShoppingCart, List } from "lucide-react";
+import { Receipt as ReceiptIcon, ShoppingBag, Wand2, Calendar, ShoppingCart, List, AlertTriangle, CheckCircle, Loader } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -8,13 +8,15 @@ import { db } from "@/lib/db";
 import { useNavigate } from "react-router-dom";
 import { Button } from "./ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Badge } from "./ui/badge";
+import { Badge } from "@/components/ui/badge"; // Badge import
 import { categoryIcons } from "@/components/categories/categoryIcons";
 import { CategoryName, defaultCategories } from "@/types/categories";
 import { Receipt, ReceiptItem } from "@/lib/db";
 import { capitalizeFirstLetter } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import { CategoryManager } from "@/components/CategoryManager"; // Import CategoryManager
+import { ollamaService } from "@/lib/ollama-service"; // Import Ollama service
+import { syncManager } from "@/lib/sync-manager"; // Import Sync manager
 
 interface RecentScansProps {
   className?: string;
@@ -24,6 +26,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
   const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(null);
   const [isCategoryManagerOpen, setCategoryManagerOpen] = useState(false); // Add state for CategoryManager visibility
   const [selectedItem, setSelectedItem] = useState<ReceiptItem | null>(null); // Add state for selected item
+  const [isAiExtracting, setIsAiExtracting] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -55,7 +58,8 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
       const result = {
         ...receipt,
         items: items.map(item => ({
-          ...item
+          ...item,
+          taxRate: '0.1', // Convert taxRate to string format
         }))
       };
       console.debug('[RecentScans] Returning receipt with items:', result);
@@ -74,7 +78,12 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
       .limit(3)
       .toArray();
 
-    console.debug('[RecentScans] Found recent receipts:', recentReceipts);
+    console.debug('[RecentScans] Raw receipts from DB:', recentReceipts.map(r => ({
+      id: r.id,
+      storeName: r.storeName,
+      processed: r.processed,
+      discrepancyDetected: r.discrepancyDetected
+    })));
 
     // Load items and categories for each receipt
     console.debug('[RecentScans] Loading items for receipts...');
@@ -82,8 +91,37 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
       recentReceipts.map(loadReceiptWithItems)
     );
 
+    console.debug('[RecentScans] Processed receipts:', receiptsWithItems.map(r => ({
+      id: r.id,
+      storeName: r.storeName,
+      processed: r.processed,
+      discrepancyDetected: r.discrepancyDetected,
+      itemsCount: r.items?.length
+    })));
+
+    console.debug('[RecentScans] Found recent receipts:', receiptsWithItems);
+
+    // Load items and categories for each receipt
+    console.debug('[RecentScans] Loading items for receipts...');
+    const receiptsWithItemsAndCategories = await Promise.all(
+      receiptsWithItems.map(async (receipt) => {
+        const items = await db.items
+          .where('receiptId')
+          .equals(receipt.id!)
+          .toArray();
+
+        return {
+          ...receipt,
+          items: items.map(item => ({
+            ...item,
+            taxRate: '0.1', // Convert taxRate to string format
+          }))
+        };
+      })
+    );
+
     console.debug('[RecentScans] Finished loading all receipts with items');
-    return receiptsWithItems;
+    return receiptsWithItemsAndCategories;
   });
 
   const handleReceiptClick = async (receipt: Receipt) => {
@@ -121,6 +159,67 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
     // setCategoryManagerOpen(true);
   };
 
+  const handleAiExtraction = async (receipt: Receipt) => {
+    if (!receipt.id) return;
+    
+    try {
+      setIsAiExtracting(true);
+      
+      // Call Ollama service to extract items
+      const extractedItems = await ollamaService.extractItems(receipt.text || '');
+      console.debug('[RecentScans] AI Extracted Items:', extractedItems);
+
+      if (!extractedItems?.items?.length) {
+        throw new Error('No items extracted by AI');
+      }
+
+      // Process each extracted item
+      const processedItems = await Promise.all(extractedItems.items.map(async (item) => {
+        const category = await db.determineCategory(item.name);
+        return {
+          name: item.name,
+          category,
+          receiptId: receipt.id!,
+          timestamp: Date.now(),
+          price: item.pricePerUnit || item.totalPrice || 0,
+          date: new Date(Date.now()),
+          taxRate: '0.1', // Convert taxRate to string format
+        };
+      }));
+
+      // Add items to sync queue
+      await syncManager.queueChanges([{
+        type: 'create',
+        table: 'receiptItems',
+        data: processedItems,
+        timestamp: Date.now()
+      }]);
+
+      // Add items directly to the database
+      await db.items.bulkAdd(processedItems);
+
+      toast({
+        title: "Success",
+        description: `Successfully extracted ${processedItems.length} additional items using AI`,
+        variant: "default",
+      });
+      
+      // Refresh the receipt data
+      const updatedReceipt = await loadReceiptWithItems(receipt);
+      setSelectedReceipt(updatedReceipt);
+      
+    } catch (error) {
+      console.error('[RecentScans] AI extraction failed:', error);
+      toast({
+        title: "Error",
+        description: "Failed to extract items using AI",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAiExtracting(false);
+    }
+  };
+
   return (
     <div className={`space-y-4 ${className}`}>
       {receipts && receipts.length > 0 && (
@@ -142,30 +241,67 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                   <ReceiptIcon className="h-4 w-4 text-nutri-purple" />
                 </div>
                 <div className="flex-1 space-y-0.5">
-                  <h3 className="font-medium flex items-center">
-                    <ShoppingBag className="h-4 w-4 mr-1 text-nutri-pink" />
+                  <h3 className="font-medium flex items-center gap-2">
+                    <ShoppingBag className="h-4 w-4 text-nutri-pink" />
                     {receipt.storeName}
+                    {receipt.processed && receipt.discrepancyDetected && (
+                      <>
+                        <Badge variant="outline" className="flex items-center gap-1 text-muted-foreground">
+                          <AlertTriangle className="h-3 w-3 text-destructive" />
+                          Items Missing
+                        </Badge>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 px-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAiExtraction(receipt);
+                          }}
+                          disabled={isAiExtracting}
+                        >
+                          <Badge variant="secondary" className="text-[10px] px-1 py-0 flex items-center gap-1">
+                            <Wand2 className="h-3 w-3 text-purple-500" />
+                            Try AI
+                          </Badge>
+                        </Button>
+                      </>
+                    )}
                   </h3>
                   <div className="flex items-center space-x-1 text-xs text-muted-foreground">
                     <div className="flex items-center gap-2">
                       <Calendar className="w-3 h-3 text-muted-foreground inline" />
                       <p>{new Date(receipt.uploadDate).toLocaleDateString('de-DE', {
-                        day: 'numeric',
+                        day: '2-digit',
                         month: '2-digit',
                         year: '2-digit'
                       })}</p>
                     </div>
                     {receipt.processed && receipt.items && (
                       <p className="flex items-center">
-                        <ShoppingCart className="w-3 h-3 text-muted-foreground mr-1 inline" />
+                        <ShoppingCart className="w-3 h-3 text-muted-foreground ml-1 inline" />
                         {receipt.items.length}
                       </p>
                     )}
                   </div>
                 </div>
                 <div className="text-right flex flex-col items-end">
-                  <p className="text-xs text-muted-foreground">
-                    {receipt.processed ? "Processed" : "Processing..."}
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    {receipt.processed ? (
+                      <>
+                        Processed
+                        {receipt.discrepancyDetected ? (
+                          <AlertTriangle className="h-3 w-3 text-destructive" />
+                        ) : (
+                          <CheckCircle className="h-3 w-3 text-green-500" />
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        Processing...
+                        <Loader className="h-3 w-3 text-yellow-500 animate-spin" />
+                      </>
+                    )}
                   </p>
                   {receipt.processed && receipt.totalAmount && (
                     <p className="font-medium">€{receipt.totalAmount.toFixed(2)}</p>
@@ -181,10 +317,48 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
         console.debug('[RecentScans] Current selectedReceipt:', selectedReceipt);
         if (!open) setSelectedReceipt(null);
       }}>
-        <DialogContent className="max-w-2xl">
-          {/* <DialogHeader>
-            <DialogTitle>Receipt Details</DialogTitle>
-          </DialogHeader> */}
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h2 className="text-lg font-semibold mb-2">Receipt Details</h2>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Badge variant="outline" className="flex items-center gap-1">
+                      <Calendar className="w-3 h-3 text-muted-foreground" />
+                      {new Date(selectedReceipt?.uploadDate).toLocaleDateString('de-DE', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: '2-digit'
+                      })}
+                    </Badge>
+                    {selectedReceipt?.discrepancyDetected && (
+                      <Badge variant="outline" className="flex items-center gap-1 text-muted-foreground">
+                        <AlertTriangle className="w-3 h-3 text-destructive" />
+                        Items Missing
+                      </Badge>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2"
+                      onClick={() => selectedReceipt && handleAiExtraction(selectedReceipt)}
+                      disabled={isAiExtracting}
+                    >
+                      <Badge variant="secondary" className="text-[10px] px-2 py-0 flex items-center gap-1">
+                        {isAiExtracting ? (
+                          <Loader className="h-3 w-3 animate-spin text-purple-500" />
+                        ) : (
+                          <Wand2 className="h-3 w-3 text-purple-500" />
+                        )}
+                        {isAiExtracting ? "Extracting..." : "Try AI Extraction"}
+                      </Badge>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </DialogTitle>
+          </DialogHeader>
           {selectedReceipt && (
             <div className="space-y-6">
               <div className="space-y-4">
@@ -200,7 +374,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                     <Badge variant="outline">
                       <Calendar className="w-3 h-3 text-blue-500 mr-1 inline" />
                       {new Date(selectedReceipt.purchaseDate).toLocaleDateString('de-DE', {
-                        day: 'numeric',
+                        day: '2-digit',
                         month: '2-digit',
                         year: '2-digit'
                       })}
@@ -219,7 +393,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">
-                      <Flame className="w-3 h-3 text-orange-500 mr-1 inline" />
+                      <Wand2 className="w-3 h-3 text-orange-500 mr-1 inline" />
                       2000 kcal
                     </Badge>
                   </div>
