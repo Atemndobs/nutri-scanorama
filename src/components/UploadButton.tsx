@@ -5,15 +5,22 @@ import { db } from "@/lib/db";
 import { useToast } from "@/hooks/use-toast";
 import { parseReweReceipt } from "@/lib/parsers/rewe-parser";
 import { parseOliverFrankReceipt } from "@/lib/parsers/oliver-frank-parser";
+import { parseAldiReceipt } from "@/lib/parsers/aldi-parser"; // Import Aldi parser
+import { parseLidlReceipt } from '@/lib/parsers/lidl-parser';
+import { defaultReceiptParser } from '@/lib/parsers/default-parser'; // Import default parser
 import { ReceiptValidationError } from "@/lib/parsers/errors";
 import Tesseract from 'tesseract.js';
 import type { CategoryName } from "@/types/categories";
+import { ollamaService } from '@/lib/ollama-service';
+import { syncManager } from '@/lib/sync-manager';
 
 export const UploadButton = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const [isUploading, setIsUploading] = useState(false);
+  const [hasDiscrepancy, setHasDiscrepancy] = useState(false);
+  const [isAiExtracting, setIsAiExtracting] = useState(false);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -57,16 +64,46 @@ export const UploadButton = () => {
             }
           );
 
-          // Log the raw extracted text
           console.log('Raw Extracted Text:', result.data.text);
+          console.log('Lowercase Text:', result.data.text.toLowerCase());
 
           // Determine which parser to use based on the content
-          const isOliverFrank = result.data.text.includes('Oliver Frank');
-          
+          const lowerCaseText = result.data.text.toLowerCase();
+          console.log('Processed Text:', lowerCaseText); // Log the processed text for debugging
+
+          // Split the text into lines for detailed logging
+          const lines = result.data.text.split('\n');
+          lines.forEach((line, index) => {
+              console.log(`Line ${index + 1}: ${line}`); // Log each line for detailed inspection
+          });
+
+          const isAldi = lowerCaseText.includes('aldi');
+          const isLidl = lowerCaseText.includes('lidl');
+          const isOliverFrank = lowerCaseText.includes('oliver frank');
+          const isRewe = /rewe/i.test(lowerCaseText); // Use regex for case-insensitive detection
+
+          // Log the result of the Rewe check
+          console.log('Is Rewe:', isRewe); // Log the result of the Rewe check
+
           // Parse the extracted text using the appropriate parser
-          const parsedData = await (isOliverFrank 
-            ? parseOliverFrankReceipt(result.data.text, receiptId)
-            : parseReweReceipt(result.data.text, receiptId));
+          let parsedData;
+          if (isAldi) {
+            parsedData = await parseAldiReceipt(result.data.text, receiptId);
+          } else if (isLidl) {
+            parsedData = await parseLidlReceipt(result.data.text, receiptId);
+          } else if (isOliverFrank) {
+            parsedData = await parseOliverFrankReceipt(result.data.text, receiptId);
+          } else if (isRewe) {
+            parsedData = await parseReweReceipt(result.data.text, receiptId);
+          } else {
+            // Fallback to a default parser if no store is recognized
+            parsedData = await defaultReceiptParser(result.data.text, receiptId);
+          }
+
+          // Check and handle the store name
+          if (parsedData.storeName === 'Other') {
+            parsedData.storeName = prompt('Store not recognized. Please enter the store name:') || 'Unknown Store';
+          }
 
           // Create items array with all fields
           const items = await Promise.all(parsedData.items.map(async item => ({
@@ -80,26 +117,84 @@ export const UploadButton = () => {
             date: parsedData.date
           })));
 
-          // Update receipt with parsed data
-          await db.receipts.update(receiptId, {
+          // Calculate total from items
+          const calculatedTotal = items.reduce((sum, item) => sum + item.price, 0);
+          console.debug('[DISCREPANCY_CHECK] Checking totals', {
+            parsedTotal: parsedData.totalAmount,
+            calculatedTotal,
+            difference: Math.abs(parsedData.totalAmount - calculatedTotal)
+          });
+
+          // Set discrepancy flag if totals don't match
+          const discrepancyDetected = Math.abs(parsedData.totalAmount - calculatedTotal) > 0.01;
+          console.debug('[DISCREPANCY_CHECK] Setting discrepancy flag', {
+            discrepancyDetected,
+            receipt: receiptId,
+            storeName: parsedData.storeName
+          });
+
+          // Prepare receipt update data
+          const receiptUpdate = {
             storeName: parsedData.storeName,
             storeAddress: parsedData.storeAddress || "",
             purchaseDate: parsedData.date,
             processed: true,
             totalAmount: parsedData.totalAmount,
+            discrepancyDetected,
             taxDetails: {
               taxRateA: 'taxRateA' in parsedData.taxDetails ? parsedData.taxDetails.taxRateA : { rate: 0, net: 0, tax: 0, gross: 0 },
               taxRateB: 'taxRateB' in parsedData.taxDetails ? parsedData.taxDetails.taxRateB : { rate: 0, net: 0, tax: 0, gross: 0 },
             }
-          });
+          };
 
-          // Add all items to database
+          // Queue receipt update in sync manager
+          await syncManager.queueChanges([{
+            type: 'update',
+            table: 'receipts',
+            data: {
+              id: receiptId,
+              ...receiptUpdate
+            },
+            timestamp: Date.now()
+          }]);
+
+          // Update receipt in database
+          await db.receipts.update(receiptId, receiptUpdate);
+
+          // Add items to sync queue
+          await syncManager.queueChanges([{
+            type: 'create',
+            table: 'receiptItems',
+            data: items,
+            timestamp: Date.now()
+          }]);
+
+          // Add items to database
           await db.items.bulkAdd(items);
 
-          toast({
-            title: "Receipt processed",
-            description: `Successfully processed ${items.length} items from ${parsedData.storeName}. Total: €${parsedData.totalAmount.toFixed(2)}`,
-          });
+          if (parsedData.discrepancyDetected) {
+            setHasDiscrepancy(true);
+            toast({
+              title: "Warning",
+              description: <div>
+                <p>Some items could not be extracted from the receipt.</p>
+                <button
+                  onClick={() => handleAiExtraction(result.data.text, receiptId)}
+                  disabled={isAiExtracting}
+                  className="bg-blue-500 text-white px-4 py-2 rounded mt-2"
+                >
+                  {isAiExtracting ? 'Extracting...' : 'Try AI Extraction'}
+                </button>
+              </div>,
+              variant: "destructive",
+              duration: 10000
+            });
+          } else {
+            toast({
+              title: "Receipt processed",
+              description: `Successfully processed ${items.length} items from ${parsedData.storeName}. Total: €${parsedData.totalAmount.toFixed(2)}`,
+            });
+          }
         } catch (error) {
           console.error('Error processing receipt:', error);
           
@@ -145,6 +240,60 @@ export const UploadButton = () => {
       });
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleAiExtraction = async (receiptText: string, receiptId: number) => {
+    try {
+      setIsAiExtracting(true);
+      
+      // Call Ollama service to extract items
+      const extractedItems = await ollamaService.extractItems(receiptText);
+      console.log('AI Extracted Items:', extractedItems);
+
+      if (!extractedItems?.items?.length) {
+        throw new Error('No items extracted by AI');
+      }
+
+      // Process each extracted item
+      const processedItems = await Promise.all(extractedItems.items.map(async (item) => {
+        const category = await db.determineCategory(item.name);
+        return {
+          ...item,
+          category,
+          receiptId,
+          timestamp: Date.now(),
+          price: item.pricePerUnit || 0, // Adjust this based on your logic
+          date: new Date(Date.now()) // Convert timestamp to Date object
+        };
+      }));
+
+      // Add items to sync queue
+      await syncManager.queueChanges([{
+        type: 'create',
+        table: 'receiptItems',
+        data: processedItems,
+        timestamp: Date.now()
+      }]);
+
+      // Add items directly to the database
+      await db.items.bulkAdd(processedItems);
+
+      toast({
+        title: "Success",
+        description: `Successfully extracted ${processedItems.length} additional items using AI`,
+        variant: "default",
+      });
+      
+    } catch (error) {
+      console.error('AI extraction failed:', error);
+      toast({
+        title: "Error",
+        description: "Failed to extract items using AI",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAiExtracting(false);
     }
   };
 
