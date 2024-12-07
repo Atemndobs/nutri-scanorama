@@ -1,5 +1,6 @@
 import Dexie, { Table } from 'dexie';
 import type { CategoryName } from '../types/categories';
+import { normalizeKeyword } from './db/categoryMappings';
 
 export interface ReceiptItem {
   id?: number;
@@ -43,6 +44,13 @@ export interface CategoryMapping {
   category: CategoryName;
 }
 
+// Adding Transaction interface to include receipts, items, and categories
+interface Transaction {
+  receipts: Table<Receipt>;
+  items: Table<ReceiptItem>;
+  categories: Table<Category>;
+}
+
 export class NutriScanDB extends Dexie {
   receipts!: Table<Receipt>;
   items!: Table<ReceiptItem>;
@@ -51,7 +59,7 @@ export class NutriScanDB extends Dexie {
 
   constructor() {
     super('nutriscan');
-    this.version(5).stores({
+    this.version(6).stores({
       receipts: '++id, storeName, storeAddress, uploadDate, purchaseDate, processed, totalAmount',
       items: '++id, receiptId, category, name, taxRate, price, quantity, pricePerUnit',
       categories: '++id, name, itemCount, color',
@@ -69,6 +77,25 @@ export class NutriScanDB extends Dexie {
           };
         }
         if (typeof receipt.totalAmount !== 'number') receipt.totalAmount = 0;
+      });
+    });
+
+    this.version(6).upgrade(async tx => {
+      // Update items that should be in Cereals category
+      await tx.items.toCollection().modify(item => {
+        const name = item.name.toLowerCase();
+        if (
+          name.includes('reis') ||
+          name.includes('pasta') ||
+          name.includes('nudel') ||
+          name.includes('müsli') ||
+          name.includes('muesli') ||
+          name.includes('cornflakes') ||
+          name.includes('spiral') ||
+          name.includes('haferflocken')
+        ) {
+          item.category = 'Cereals';
+        }
       });
     });
   }
@@ -98,7 +125,7 @@ export class NutriScanDB extends Dexie {
   }
 
   async deleteReceipt(receiptId: number) {
-    await this.transaction('rw', [this.receipts, this.items, this.categories], async () => {
+    await this.transaction('rw', [this.receipts, this.items, this.categories], async function (this: NutriScanDB) {
       // Get all items for this receipt
       const items = await this.items.where('receiptId').equals(receiptId).toArray();
       
@@ -127,32 +154,55 @@ export class NutriScanDB extends Dexie {
       await this.receipts.delete(receiptId);
     });
   }
-
   async determineCategory(itemName: string): Promise<CategoryName> {
-    console.debug('[DB] Starting category determination for:', itemName);
-    const name = itemName.toLowerCase();
+    const nameBefore = normalizeKeyword(itemName);
 
-    // First check direct mappings
-    const mapping = await this.categoryMappings
-      .where('keyword')
-      .equals(name)
-      .first();
+    
+    try {
+      const name = normalizeKeyword(itemName);
+      // console.debug('[DB MATCHING] Starting category determination:', { 
+      //   itemName, 
+      //   normalizedName: name
+      // });
 
-    if (mapping) {
-      console.debug('[DB] Found direct mapping:', mapping);
-      return mapping.category;
-    }
+      // First check direct mappings
+      const mapping = await this.categoryMappings
+        .where('keyword')
+        .equals(name)
+        .first();
 
-    // Then check if any keyword is included in the name
-    const mappings = await this.categoryMappings.toArray();
-    for (const mapping of mappings) {
-      if (name.includes(mapping.keyword)) {
-        console.debug('[DB] Found keyword match:', mapping);
+      if (mapping) {
+        console.debug('[DB MATCHING] Found direct mapping:', { 
+          keyword: mapping.keyword, 
+          category: mapping.category 
+        });
         return mapping.category;
       }
+
+      // Then check if any keyword is included in the name
+      const mappings = await this.categoryMappings.toArray();
+      
+      for (const mapping of mappings) {
+        const normalizedKeyword = normalizeKeyword(mapping.keyword);
+        if (name.includes(normalizedKeyword)) {
+          console.debug('[DB MATCHING] Found keyword match:', { 
+            keyword: mapping.keyword, 
+            category: mapping.category,
+            itemName,
+            normalizedName: name
+          });
+          return mapping.category;
+        }
+      }
+    } catch (error) {
+      console.error('[DB MATCHING] Error:', { itemName, error });
     }
 
-    console.debug('[DB] No category match found, returning Other for:', name);
+    // console.debug('[DB MATCHING] No category match found:', { 
+    //   itemName, 
+    //   normalizedName: nameBefore, 
+    //   result: 'Other' 
+    // });
     return 'Other';
   }
 
@@ -175,6 +225,9 @@ export class NutriScanDB extends Dexie {
         Bakery: 0,
         Beverages: 0,
         Snacks: 0,
+        Cereals: 0,
+        Sweets: 0,
+        Oils: 0,
         Other: 0
       };
 
@@ -220,6 +273,9 @@ db.on('ready', async () => {
       { name: 'Bakery', icon: 'croissant', itemCount: 0, color: '#9C27B0' },
       { name: 'Beverages', icon: 'coffee', itemCount: 0, color: '#2196F3' },
       { name: 'Snacks', icon: 'cookie', itemCount: 0, color: '#FF9800' },
+      { name: 'Cereals', icon: 'wheat', itemCount: 0, color: '#795548' },
+      { name: 'Sweets', icon: 'candy', itemCount: 0, color: '#FFC0CB' },
+      { name: 'Oils', icon: 'oil', itemCount: 0, color: '#FFD700' },
       { name: 'Other', icon: 'grid', itemCount: 0, color: '#9E9E9E' }
     ]);
   }
@@ -242,12 +298,18 @@ db.on('ready', async () => {
       { keyword: 'ananas', category: 'Fruits' },
       { keyword: 'zitrone', category: 'Fruits' },
       { keyword: 'limette', category: 'Fruits' },
+      { keyword: 'banane chiquita', category: 'Fruits' },
+      { keyword: 'birne abate fete', category: 'Fruits' },
       // Vegetables
       { keyword: 'karotte', category: 'Vegetables' },
       { keyword: 'salat', category: 'Vegetables' },
       { keyword: 'tomate', category: 'Vegetables' },
+      { keyword: 'romarispen', category: 'Vegetables' },
+      { keyword: 'romanita', category: 'Vegetables' },
+      { keyword: 'roma-', category: 'Vegetables' },
       { keyword: 'gurke', category: 'Vegetables' },
       { keyword: 'broccoli', category: 'Vegetables' },
+      { keyword: 'brokkoli', category: 'Vegetables' },
       { keyword: 'paprika', category: 'Vegetables' },
       { keyword: 'zwiebel', category: 'Vegetables' },
       { keyword: 'kartoffel', category: 'Vegetables' },
@@ -256,9 +318,30 @@ db.on('ready', async () => {
       { keyword: 'zucchini', category: 'Vegetables' },
       { keyword: 'aubergine', category: 'Vegetables' },
       { keyword: 'pilz', category: 'Vegetables' },
+      { keyword: 'avocado', category: 'Vegetables' },
+      { keyword: 'vorger', category: 'Vegetables' }, // For pre-prepared vegetables
+      { keyword: 'gusto', category: 'Vegetables' }, // For Tomato al Gusto products
+      { keyword: 'al gusto', category: 'Vegetables' }, // For Tomato al Gusto products
+      { keyword: 'kidneybohnen', category: 'Vegetables' },
+      { keyword: 'pesto rosso', category: 'Vegetables' },
+      { keyword: 'zwiebel bravos', category: 'Vegetables' },
+      { keyword: 'broccoli neutral', category: 'Vegetables' },
+      { keyword: 'paprika rot sp', category: 'Vegetables' },
+      // Cereals
+      { keyword: 'reis', category: 'Cereals' },
+      { keyword: 'parboiled', category: 'Cereals' },
+      { keyword: 'spiral', category: 'Cereals' }, // For pasta spirals
+      { keyword: 'spiralen', category: 'Cereals' }, // German pasta spirals
+      { keyword: 'nudel', category: 'Cereals' },
+      { keyword: 'pasta', category: 'Cereals' },
+      { keyword: 'müsli', category: 'Cereals' },
+      { keyword: 'muesli', category: 'Cereals' },
+      { keyword: 'cornflakes', category: 'Cereals' },
+      { keyword: 'haferflocken', category: 'Cereals' },
       // Dairy
       { keyword: 'milch', category: 'Dairy' },
       { keyword: 'joghurt', category: 'Dairy' },
+      { keyword: 'fr. jog. natur', category: 'Dairy' },
       { keyword: 'käse', category: 'Dairy' },
       { keyword: 'butter', category: 'Dairy' },
       { keyword: 'sahne', category: 'Dairy' },
@@ -266,25 +349,48 @@ db.on('ready', async () => {
       { keyword: 'frischkäse', category: 'Dairy' },
       { keyword: 'schmand', category: 'Dairy' },
       { keyword: 'mozarella', category: 'Dairy' },
+      { keyword: 'old amsterdam', category: 'Dairy' },
+      { keyword: 'lesbos feta', category: 'Dairy' },
+      { keyword: 'griech. hirtenka', category: 'Dairy' },
+      { keyword: 'creme fraiche', category: 'Dairy' },
+      { keyword: 'fr. jog. natur 1,5', category: 'Dairy' },
       // Meat
       { keyword: 'fleisch', category: 'Meat' },
       { keyword: 'wurst', category: 'Meat' },
+      { keyword: 'rostbratwurst', category: 'Meat' },
+      { keyword: 'rostbratwuerste', category: 'Meat' },
       { keyword: 'schinken', category: 'Meat' },
       { keyword: 'hähnchen', category: 'Meat' },
+      { keyword: 'hae-schenkel', category: 'Meat' },
+      { keyword: 'schenkel', category: 'Meat' },
       { keyword: 'rind', category: 'Meat' },
       { keyword: 'schwein', category: 'Meat' },
       { keyword: 'fisch', category: 'Meat' },
       { keyword: 'lachs', category: 'Meat' },
       { keyword: 'thunfisch', category: 'Meat' },
       { keyword: 'salami', category: 'Meat' },
+      { keyword: 'spiessbraten', category: 'Meat' },
+      { keyword: 'spiess', category: 'Meat' }, // Common abbreviation
+      { keyword: 'spieß', category: 'Meat' }, // Alternative spelling
+      { keyword: 'bacon in streif', category: 'Meat' },
       // Bakery
       { keyword: 'brot', category: 'Bakery' },
       { keyword: 'brötchen', category: 'Bakery' },
       { keyword: 'croissant', category: 'Bakery' },
+      { keyword: 'buttercroissant', category: 'Bakery' },
       { keyword: 'kuchen', category: 'Bakery' },
       { keyword: 'gebäck', category: 'Bakery' },
+      { keyword: 'gebaeck', category: 'Bakery' }, // Alternative spelling without umlaut
       { keyword: 'toast', category: 'Bakery' },
       { keyword: 'brezel', category: 'Bakery' },
+      { keyword: 'donut', category: 'Bakery' },
+      { keyword: 'pastel', category: 'Bakery' },
+      { keyword: 'nata', category: 'Bakery' }, // For Pastel de Nata
+      { keyword: 'butterspr', category: 'Bakery' },
+      { keyword: 'spritz', category: 'Bakery' }, // For Butter Spritz cookies
+      { keyword: 'anno 1688', category: 'Bakery' },
+      { keyword: 'anno 1688 rustik', category: 'Bakery' },
+      { keyword: 'flammkuchenteig', category: 'Bakery' },
       // Beverages
       { keyword: 'wasser', category: 'Beverages' },
       { keyword: 'saft', category: 'Beverages' },
@@ -299,13 +405,35 @@ db.on('ready', async () => {
       { keyword: 'chips', category: 'Snacks' },
       { keyword: 'nüsse', category: 'Snacks' },
       { keyword: 'schokolade', category: 'Snacks' },
+      { keyword: 'schoko', category: 'Snacks' },
+      { keyword: 'schokoladen', category: 'Snacks' }, // Common variant
       { keyword: 'keks', category: 'Snacks' },
       { keyword: 'süßigkeit', category: 'Snacks' },
+      { keyword: 'suessigkeit', category: 'Snacks' }, // Alternative spelling without umlaut
       { keyword: 'bonbon', category: 'Snacks' },
       { keyword: 'gummibär', category: 'Snacks' },
+      { keyword: 'gummibaer', category: 'Snacks' }, // Alternative spelling without umlaut
       { keyword: 'riegel', category: 'Snacks' },
       { keyword: 'popcorn', category: 'Snacks' },
-      { keyword: 'cracker', category: 'Snacks' }
+      { keyword: 'cracker', category: 'Snacks' },
+      { keyword: 'miluna', category: 'Snacks' },
+      { keyword: 'negrom', category: 'Snacks' }, // For Miluna Negrom products
+      { keyword: 'spekulatius', category: 'Snacks' },
+      { keyword: 'giotto', category: 'Snacks' },
+      { keyword: 'giotto haselnuss', category: 'Snacks' },
+      // Sweets
+      { keyword: 'süß', category: 'Sweets' },
+      { keyword: 'bonbon', category: 'Sweets' },
+      { keyword: 'keks', category: 'Sweets' },
+      { keyword: 'cookie', category: 'Sweets' },
+      { keyword: 'schokolade', category: 'Sweets' },
+      // Oils
+      { keyword: 'öl', category: 'Oils' },
+      { keyword: 'essig', category: 'Oils' },
+      { keyword: 'dressing', category: 'Oils' },
+      { keyword: 'olivenöl', category: 'Oils' },
+      { keyword: 'mayonnaise', category: 'Oils' },
+      { keyword: 'deli. mayonnaise', category: 'Oils' },
     ]);
   }
 });

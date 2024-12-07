@@ -14,6 +14,7 @@ import { CategoryName, defaultCategories } from "@/types/categories";
 import { Receipt, ReceiptItem } from "@/lib/db";
 import { capitalizeFirstLetter } from "@/lib/utils";
 import { Link } from "react-router-dom";
+import { CategoryManager } from "@/components/CategoryManager"; // Import CategoryManager
 
 interface RecentScansProps {
   className?: string;
@@ -21,6 +22,8 @@ interface RecentScansProps {
 
 export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
   const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(null);
+  const [isCategoryManagerOpen, setCategoryManagerOpen] = useState(false); // Add state for CategoryManager visibility
+  const [selectedItem, setSelectedItem] = useState<ReceiptItem | null>(null); // Add state for selected item
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -111,6 +114,11 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
         variant: "destructive",
       });
     }
+  };
+
+  const handleManageCategory = (item: ReceiptItem) => {
+    setSelectedItem(item);
+    // setCategoryManagerOpen(true);
   };
 
   return (
@@ -227,6 +235,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                           <TableHead>Item</TableHead>
                           <TableHead>Category</TableHead>
                           <TableHead className="text-right">Price</TableHead>
+                          {/* <TableHead className="text-right">Actions</TableHead> */}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -241,6 +250,9 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                                 </div>
                               </TableCell>
                               <TableCell className="text-right">€{item.price.toFixed(2)}</TableCell>
+                              {/* <TableCell className="text-right">
+                                <Button size="sm" onClick={() => handleManageCategory(item)}>MC</Button>
+                              </TableCell> */}
                             </TableRow>
                           );
                         })}
@@ -281,6 +293,9 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
           )}
         </DialogContent>
       </Dialog>
+      {/* {isCategoryManagerOpen && (
+        <CategoryManager item={selectedItem} onClose={() => setCategoryManagerOpen(false)} />
+      )} */}
     </div>
   );
 };

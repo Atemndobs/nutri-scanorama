@@ -6,7 +6,10 @@ export type CategoryName =
   | 'Bakery'
   | 'Beverages'
   | 'Snacks'
-  | 'Other';
+  | 'Cereals'
+  | 'Other'
+  | 'Sweets'
+  | 'Oils';
 
 export interface Category {
   id?: number;
@@ -23,5 +26,8 @@ export const defaultCategories: Record<CategoryName, { color: string }> = {
   Bakery: { color: '#9C27B0' },      // Purple
   Beverages: { color: '#2196F3' },   // Blue
   Snacks: { color: '#FF9800' },      // Orange
-  Other: { color: '#9E9E9E' }        // Grey
+  Cereals: { color: '#795548' },     // Brown
+  Other: { color: '#9E9E9E' },       // Grey
+  Sweets: { color: '#FFC0CB' },      // Pink
+  Oils: { color: '#FFD700' },        // Gold
 };
