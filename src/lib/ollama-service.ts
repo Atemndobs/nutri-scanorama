@@ -1,7 +1,7 @@
 const OLLAMA_ENDPOINT = "http:127.0.0.1:11434";
 const OLLAMA_MODEL = "llama3.2:1b";
 
-export interface ProcessedReceipt {
+export class ProcessedReceipt {
   storeName: string;
   items: {
     name: string;
@@ -9,6 +9,27 @@ export interface ProcessedReceipt {
     price: number;
   }[];
   totalAmount: number;
+
+  constructor(storeName: string, items: { name: string; category: string; price: number; }[], totalAmount: number) {
+    this.storeName = storeName;
+    this.items = items;
+    this.totalAmount = totalAmount;
+  }
+
+  [Symbol.iterator]() {
+    let index = 0;
+    const items = this.items;
+
+    return {
+      next: () => {
+        if (index < items.length) {
+          return { value: items[index++], done: false };
+        } else {
+          return { done: true };
+        }
+      }
+    };
+  }
 }
 
 export const processReceiptWithOllama = async (imageData: string): Promise<ProcessedReceipt> => {
@@ -31,7 +52,7 @@ Receipt data: ${imageData}`,
     }
 
     const data = await response.json();
-    return data;
+    return new ProcessedReceipt(data.storeName, data.items, data.totalAmount);
   } catch (error) {
     console.error('Error processing receipt:', error);
     throw error;

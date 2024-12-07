@@ -13,6 +13,8 @@ import { categoryIcons } from "@/components/categories/categoryIcons";
 import { CategoryName, defaultCategories } from "@/types/categories";
 import { Receipt, ReceiptItem } from "@/lib/db";
 import { capitalizeFirstLetter } from "@/lib/utils";
+import { Link } from "react-router-dom";
+import { CategoryManager } from "@/components/CategoryManager"; // Import CategoryManager
 
 interface RecentScansProps {
   className?: string;
@@ -20,6 +22,8 @@ interface RecentScansProps {
 
 export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
   const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(null);
+  const [isCategoryManagerOpen, setCategoryManagerOpen] = useState(false); // Add state for CategoryManager visibility
+  const [selectedItem, setSelectedItem] = useState<ReceiptItem | null>(null); // Add state for selected item
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -112,53 +116,66 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
     }
   };
 
+  const handleManageCategory = (item: ReceiptItem) => {
+    setSelectedItem(item);
+    // setCategoryManagerOpen(true);
+  };
+
   return (
     <div className={`space-y-4 ${className}`}>
-      <h2 className="text-lg font-semibold">Recent Scans</h2>
-      {receipts?.map((receipt) => (
-        <Card
-          key={receipt.id}
-          className="bg-card/50 backdrop-blur-sm hover:bg-card/60 transition-colors cursor-pointer"
-          onClick={() => handleReceiptClick(receipt)}
-        >
-          <CardContent className="flex items-center p-2">
-            <div className="h-8 w-8 rounded-full bg-nutri-purple/10 flex items-center justify-center mr-3">
-              <ReceiptIcon className="h-4 w-4 text-nutri-purple" />
-            </div>
-            <div className="flex-1 space-y-0.5">
-              <h3 className="font-medium flex items-center">
-                <ShoppingBag className="h-4 w-4 mr-1 text-nutri-pink" />
-                {receipt.storeName}
-              </h3>
-              <div className="flex items-center space-x-1 text-xs text-muted-foreground">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-3 h-3 text-muted-foreground inline" />
-                  <p>{new Date(receipt.uploadDate).toLocaleDateString('de-DE', {
-                    day: 'numeric',
-                    month: '2-digit',
-                    year: '2-digit'
-                  })}</p>
+      {receipts && receipts.length > 0 && (
+        <>
+          <div className="flex justify-center items-center mb-4">
+            <h2 className="text-lg font-semibold">Recent Scans</h2>
+            <Link to="/scans" className="text-nutri-purple hover:underline ml-2">
+              &gt;
+            </Link>
+          </div>
+          {receipts?.map((receipt) => (
+            <Card
+              key={receipt.id}
+              className="bg-card/50 backdrop-blur-sm hover:bg-card/60 transition-colors cursor-pointer"
+              onClick={() => handleReceiptClick(receipt)}
+            >
+              <CardContent className="flex items-center p-2">
+                <div className="h-8 w-8 rounded-full bg-nutri-purple/10 flex items-center justify-center mr-3">
+                  <ReceiptIcon className="h-4 w-4 text-nutri-purple" />
                 </div>
-                {receipt.processed && receipt.items && (
-                  <p className="flex items-center">
-                    <ShoppingCart className="w-3 h-3 text-muted-foreground mr-1 inline" />
-                    {receipt.items.length}
+                <div className="flex-1 space-y-0.5">
+                  <h3 className="font-medium flex items-center">
+                    <ShoppingBag className="h-4 w-4 mr-1 text-nutri-pink" />
+                    {receipt.storeName}
+                  </h3>
+                  <div className="flex items-center space-x-1 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-3 h-3 text-muted-foreground inline" />
+                      <p>{new Date(receipt.uploadDate).toLocaleDateString('de-DE', {
+                        day: 'numeric',
+                        month: '2-digit',
+                        year: '2-digit'
+                      })}</p>
+                    </div>
+                    {receipt.processed && receipt.items && (
+                      <p className="flex items-center">
+                        <ShoppingCart className="w-3 h-3 text-muted-foreground mr-1 inline" />
+                        {receipt.items.length}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right flex flex-col items-end">
+                  <p className="text-xs text-muted-foreground">
+                    {receipt.processed ? "Processed" : "Processing..."}
                   </p>
-                )}
-              </div>
-            </div>
-            <div className="text-right flex flex-col items-end">
-              <p className="text-xs text-muted-foreground">
-                {receipt.processed ? "Processed" : "Processing..."}
-              </p>
-              {receipt.processed && receipt.totalAmount && (
-                <p className="font-medium">€{receipt.totalAmount.toFixed(2)}</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-
+                  {receipt.processed && receipt.totalAmount && (
+                    <p className="font-medium">€{receipt.totalAmount.toFixed(2)}</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </>
+      )}
       <Dialog open={!!selectedReceipt} onOpenChange={(open) => {
         console.debug('[RecentScans] Dialog open state changed:', open);
         console.debug('[RecentScans] Current selectedReceipt:', selectedReceipt);
@@ -218,6 +235,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                           <TableHead>Item</TableHead>
                           <TableHead>Category</TableHead>
                           <TableHead className="text-right">Price</TableHead>
+                          {/* <TableHead className="text-right">Actions</TableHead> */}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -232,6 +250,9 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                                 </div>
                               </TableCell>
                               <TableCell className="text-right">€{item.price.toFixed(2)}</TableCell>
+                              {/* <TableCell className="text-right">
+                                <Button size="sm" onClick={() => handleManageCategory(item)}>MC</Button>
+                              </TableCell> */}
                             </TableRow>
                           );
                         })}
@@ -272,6 +293,9 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
           )}
         </DialogContent>
       </Dialog>
+      {/* {isCategoryManagerOpen && (
+        <CategoryManager item={selectedItem} onClose={() => setCategoryManagerOpen(false)} />
+      )} */}
     </div>
   );
 };

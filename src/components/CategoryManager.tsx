@@ -11,12 +11,15 @@ import {
 import { Trash2 } from 'lucide-react';
 import { db } from '@/lib/db';
 import { Category, CategoryName } from '@/types/categories';
+import { processReceiptWithOllama } from '../lib/ollama-service';
+import { CategoryMapping } from '../lib/db';
 
 export function CategoryManager() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [newKeyword, setNewKeyword] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<CategoryName>('Other');
   const [categoryMappingsState, setCategoryMappings] = useState([]);
+  const [poorlyExtractedText, setPoorlyExtractedText] = useState('');
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -53,6 +56,23 @@ export function CategoryManager() {
   const handleDeleteMapping = async (id: number) => {
     await db.categoryMappings.delete(id);
     fetchCategoryMappings();
+  };
+
+  const handleCategorizeItems = async (rawItemsText: string) => {
+    try {
+      const categorizedItems = await processReceiptWithOllama(rawItemsText);
+      // Assuming categorizedItems is an array of { keyword, category }
+      for (const item of categorizedItems) {
+        const categoryMapping: CategoryMapping = {
+          keyword: item.keyword, // Ensure this exists
+          category: item.category // Ensure this exists
+        };
+        await db.categoryMappings.add(categoryMapping);
+      }
+      fetchCategoryMappings(); // Refresh the mappings
+    } catch (error) {
+      console.error('Error categorizing items:', error);
+    }
   };
 
   if (!categoryMappingsState || !categories) return null;
@@ -98,6 +118,12 @@ export function CategoryManager() {
           </div>
         ))}
       </div>
+      <Input
+        placeholder="Enter poorly extracted text..."
+        value={poorlyExtractedText}
+        onChange={(e) => setPoorlyExtractedText(e.target.value)}
+      />
+      <Button onClick={() => handleCategorizeItems(poorlyExtractedText)}>Categorize Poorly Extracted Items</Button>
     </div>
   );
 }

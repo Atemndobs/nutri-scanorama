@@ -15,12 +15,22 @@ export class CategoryMappingsDB extends Dexie {
     super('categoryMappingsDB');
     this.version(2).stores({
       categoryMappings: '++id, keyword, category',
-      categories: '++id, name, itemCount'
+      categories: '++id, name, itemCount, color'
     });
   }
 }
 
 export const db = new CategoryMappingsDB();
+
+// Function to normalize keywords to lowercase for case-insensitive matching
+export function normalizeKeyword(keyword: string): string {
+  return keyword.toLowerCase();
+}
+
+// Normalize and clean item names before mapping
+function cleanItemName(itemName: string): string {
+  return itemName.toLowerCase().trim();
+}
 
 // Initial category mappings
 export const defaultMappings: Omit<CategoryMapping, 'id'>[] = [
@@ -40,6 +50,8 @@ export const defaultMappings: Omit<CategoryMapping, 'id'>[] = [
   { keyword: 'kartoffel', category: 'Vegetables' },
   { keyword: 'gemüse', category: 'Vegetables' },
   { keyword: 'avocado', category: 'Vegetables' },
+  { keyword: 'kidneybohnen', category: 'Vegetables' },
+  { keyword: 'pesto rosso', category: 'Vegetables' },
 
   // Meat
   { keyword: 'spiessbraten', category: 'Meat' },
@@ -50,6 +62,7 @@ export const defaultMappings: Omit<CategoryMapping, 'id'>[] = [
   { keyword: 'huhn', category: 'Meat' },
   { keyword: 'steak', category: 'Meat' },
   { keyword: 'schnitzel', category: 'Meat' },
+  { keyword: 'rostbratwuerste', category: 'Meat' },
 
   // Seafood (categorized as Meat)
   { keyword: 'fisch', category: 'Meat' },
@@ -65,6 +78,7 @@ export const defaultMappings: Omit<CategoryMapping, 'id'>[] = [
   { keyword: 'butter', category: 'Dairy' },
   { keyword: 'sahne', category: 'Dairy' },
   { keyword: 'quark', category: 'Dairy' },
+  { keyword: 'old amsterdam', category: 'Dairy' },
 
   // Bakery
   { keyword: 'brot', category: 'Bakery' },
@@ -74,24 +88,26 @@ export const defaultMappings: Omit<CategoryMapping, 'id'>[] = [
   { keyword: 'pastel', category: 'Bakery' },
   { keyword: 'kuchen', category: 'Bakery' },
 
-  // Cereals (categorized as Groceries)
-  { keyword: 'müsli', category: 'Groceries' },
-  { keyword: 'reis', category: 'Groceries' },
-  { keyword: 'nudel', category: 'Groceries' },
-  { keyword: 'pasta', category: 'Groceries' },
-  { keyword: 'cornflakes', category: 'Groceries' },
+  // Cereals 
+  { keyword: 'müsli', category: 'Cereals' },
+  { keyword: 'reis', category: 'Cereals' },
+  { keyword: 'nudel', category: 'Cereals' },
+  { keyword: 'pasta', category: 'Cereals' },
+  { keyword: 'cornflakes', category: 'Cereals' },
 
-  // Oils & Dressings (categorized as Groceries)
-  { keyword: 'öl', category: 'Groceries' },
-  { keyword: 'essig', category: 'Groceries' },
-  { keyword: 'dressing', category: 'Groceries' },
+  // Oils & Dressings 
+  { keyword: 'öl', category: 'Oils' },
+  { keyword: 'essig', category: 'Oils' },
+  { keyword: 'dressing', category: 'Oils' },
+  { keyword: 'olivenöl', category: 'Oils' },
+  { keyword: 'deli. mayonnaise', category: 'Oils' },
 
-  // Spices & Seasonings (categorized as Groceries)
-  { keyword: 'gewürz', category: 'Groceries' },
-  { keyword: 'pfeffer', category: 'Groceries' },
-  { keyword: 'salz', category: 'Groceries' },
-  { keyword: 'sauce', category: 'Groceries' },
-  { keyword: 'senf', category: 'Groceries' },
+  // Spices & Seasonings (categorized as Other)
+  { keyword: 'gewürz', category: 'Other' },
+  { keyword: 'pfeffer', category: 'Other' },
+  { keyword: 'salz', category: 'Other' },
+  { keyword: 'sauce', category: 'Other' },
+  { keyword: 'senf', category: 'Other' },
 
   // Snacks
   { keyword: 'chips', category: 'Snacks' },
@@ -106,6 +122,7 @@ export const defaultMappings: Omit<CategoryMapping, 'id'>[] = [
   { keyword: 'bonbon', category: 'Sweets' },
   { keyword: 'keks', category: 'Sweets' },
   { keyword: 'cookie', category: 'Sweets' },
+  { keyword: 'eis', category: 'Sweets' },
 
   // Beverages
   { keyword: 'kaffee', category: 'Beverages' },
@@ -117,11 +134,39 @@ export const defaultMappings: Omit<CategoryMapping, 'id'>[] = [
   { keyword: 'wein', category: 'Beverages' },
 
   // Frozen Foods
-  { keyword: 'eis', category: 'Groceries' },
-  { keyword: 'tiefkühl', category: 'Groceries' },
-  { keyword: 'frost', category: 'Groceries' },
-  { keyword: 'gefrier', category: 'Groceries' },
+  { keyword: 'tiefkühl', category: 'Other' },
+  { keyword: 'frost', category: 'Other' },
+  { keyword: 'gefrier', category: 'Other' },
 ];
+
+export async function determineCategory(itemName: string): Promise<CategoryName> {
+  const cleanedName = cleanItemName(itemName);
+  console.debug('[DB MATCHING] Original name:', itemName, '| Cleaned name:', cleanedName);
+  console.debug('[DB] Starting category determination for:', itemName, '->', cleanedName);
+
+  // First check direct mappings
+  const mapping = await db.categoryMappings
+    .where('keyword')
+    .equals(cleanedName)
+    .first();
+
+  if (mapping) {
+    console.debug('[DB] Found direct mapping:', mapping);
+    return mapping.category;
+  }
+
+  // Then check if any keyword is included in the name
+  const mappings = await db.categoryMappings.toArray();
+  for (const mapping of mappings) {
+    if (cleanedName.includes(cleanItemName(mapping.keyword))) {
+      console.debug('[DB] Found keyword match:', mapping);
+      return mapping.category;
+    }
+  }
+
+  console.debug('[DB MATCHING] No category match found, returning Other for:', itemName, '->', cleanedName);
+  return 'Other';
+}
 
 // Initialize database with default mappings if empty
 export async function initializeCategoryMappings() {
@@ -143,17 +188,17 @@ export async function initializeCategories() {
   const count = await db.categories.count();
   if (count === 0) {
     const defaultCategories: Omit<Category, 'id'>[] = [
-      { name: 'Groceries', itemCount: 0 },
-      { name: 'Beverages', itemCount: 0 },
-      { name: 'Snacks', itemCount: 0 },
-      { name: 'Household', itemCount: 0 },
-      { name: 'Fruits', itemCount: 0 },
-      { name: 'Vegetables', itemCount: 0 },
-      { name: 'Dairy', itemCount: 0 },
-      { name: 'Meat', itemCount: 0 },
-      { name: 'Bakery', itemCount: 0 },
-      { name: 'Personal Care', itemCount: 0 },
-      { name: 'Other', itemCount: 0 }
+      { name: 'Beverages', itemCount: 0, color: 'brown' },
+      { name: 'Snacks', itemCount: 0, color: 'orange' },
+      { name: 'Fruits', itemCount: 0, color: 'red' },
+      { name: 'Vegetables', itemCount: 0, color: 'green' },
+      { name: 'Dairy', itemCount: 0, color: 'white' },
+      { name: 'Meat', itemCount: 0, color: 'pink' },
+      { name: 'Bakery', itemCount: 0, color: 'gold' },
+      { name: 'Other', itemCount: 0, color: 'grey' },
+      { name: 'Oils', itemCount: 0, color: 'yellow' },
+      { name: 'Cereals', itemCount: 0, color: 'lightbrown' },
+      { name: 'Sweets', itemCount: 0, color: 'pink' },
     ];
     await db.categories.bulkAdd(defaultCategories);
   }

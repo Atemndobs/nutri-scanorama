@@ -1,4 +1,4 @@
-import { Grid, Coffee, Cookie, Apple, Carrot, Milk, Beef, Croissant, LucideIcon } from "lucide-react";
+import { Grid, Coffee, Cookie, Apple, Carrot, Milk, Beef, Croissant, LucideIcon, Wheat, Candy, Droplets } from "lucide-react";
 import type { CategoryName } from "@/types/categories";
 
 export const categoryIcons: Record<CategoryName, LucideIcon> = {
@@ -9,5 +9,8 @@ export const categoryIcons: Record<CategoryName, LucideIcon> = {
   Bakery: Croissant,
   Beverages: Coffee,
   Snacks: Cookie,
+  Cereals: Wheat,
+  Sweets: Candy,
+  Oils: Droplets,
   Other: Grid
 };

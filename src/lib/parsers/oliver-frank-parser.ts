@@ -43,7 +43,6 @@ export const parseOliverFrankReceipt = async (text: string, receiptId: number): 
   // Find store address until we hit Tel.
   while (currentLine < lines.length && !lines[currentLine].includes('Tel.')) {
     if (lines[currentLine].trim() !== '') {
-      // Clean up address lines
       const cleanedLine = lines[currentLine]
         .replace('_', '') // Remove underscores
         .trim();
@@ -53,8 +52,9 @@ export const parseOliverFrankReceipt = async (text: string, receiptId: number): 
     }
     currentLine++;
   }
-  
   receipt.storeAddress = addressLines.join(', ');
+
+  let calculatedTotal = 0; // Initialize calculated total
 
   // Parse items
   let parsingItems = true;
@@ -71,77 +71,52 @@ export const parseOliverFrankReceipt = async (text: string, receiptId: number): 
     }
 
     if (parsingItems && !line.includes('Tel.')) {
-      // Match item pattern: name followed by price and tax rate
-      // Format: NAME PRICE B
-      const itemMatch = line.match(/^(.+?)\s+([\d,]+)\s*([B])\s*$/);
+      // Adjusted item matching regex to accommodate new receipt format
+      const itemMatch = line.match(/^(.+?)\s+(\d+,\d{2})\s*([B])?$/);
       if (itemMatch) {
-        const [, rawName, priceStr, taxRate] = itemMatch;
+        const [, rawName, priceStr] = itemMatch;
         let name = rawName.trim();
 
         // Clean up common OCR artifacts
         name = name
-          .replace(/[|>©_]/g, '')
+          .replace(/[|\u003e\u00A9_]/g, '')
           .replace(/\s+/g, ' ')
           .trim();
 
         const item: OliverFrankReceiptItem = {
           name,
           totalPrice: cleanPrice(priceStr),
-          taxRate: taxRate as "B"
+          taxRate: 'B'
         };
 
         receipt.items.push(item);
+        calculatedTotal += item.totalPrice; // Add to calculated total
       } else if (line.match(/^[A-Z]/)) {
         // Handle items without price (continuation from previous line or special items)
         const lastItem = receipt.items[receipt.items.length - 1];
         if (lastItem) {
           lastItem.name = `${lastItem.name} ${line}`.trim();
         }
+      } else {
+        // Additional logging for uncategorized items
+        if (!itemMatch && parsingItems) {
+          console.warn(`Uncategorized line: ${line}`);
+        }
       }
     }
 
-    // Parse total amount
-    if (line.includes('Geg. VISA EUR')) {
+    // Updated total amount parsing to match new format
+    if (line.includes('Gesamtbetrag')) {
       const totalMatch = line.match(/(\d+,\d+)/);
       if (totalMatch) {
         receipt.totalAmount = parseFloat(totalMatch[1].replace(',', '.'));
       }
     }
-
-    // Parse tax details
-    if (line.includes('B= 7,0%')) {
-      const values = line.match(/(\d+,\d+)/g);
-      if (values && values.length >= 3) {
-        receipt.taxDetails.taxRateB = {
-          rate: 7,
-          net: parseFloat(values[0].replace(',', '.')),
-          tax: parseFloat(values[1].replace(',', '.')),
-          gross: parseFloat(values[2].replace(',', '.'))
-        };
-      }
-    }
   }
 
-  // After parsing all items, validate and calculate total
-  try {
-    const { total, method } = validateAndCalculateTotal(lines, receipt.items);
-    receipt.totalAmount = total;
-
-    // Update tax details based on total if we had to calculate it
-    if (method === 'calculated') {
-      const netAmount = total / 1.07; // Oliver Frank uses 7% VAT
-      receipt.taxDetails.taxRateB = {
-        rate: 7,
-        net: netAmount,
-        tax: total - netAmount,
-        gross: total
-      };
-    }
-  } catch (error) {
-    if (error instanceof ReceiptValidationError) {
-      throw error;
-    }
-    throw new ReceiptValidationError('Failed to process receipt data');
+  // Use fallback total if parsing fails
+  if (receipt.totalAmount === 0) {
+    receipt.totalAmount = calculatedTotal;
   }
 
   // Validate receipt has required data
