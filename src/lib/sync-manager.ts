@@ -38,6 +38,15 @@ class SyncManager {
     this.pendingChanges.push(syncItem);
   }
 
+  queueChanges(changes: Array<{ type: string; table: string; data: any; timestamp: number }>) {
+    // Logic to handle queuing changes
+    changes.forEach(change => {
+      // Add each change to a queue or process it as needed
+      console.log(`Queuing change for table: ${change.table}`, change);
+      // Example: this.pendingChanges.push(change);
+    });
+  }
+
   private async syncPendingChanges() {
     if (this.pendingChanges.length === 0) return;
 

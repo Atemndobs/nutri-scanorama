@@ -24,6 +24,8 @@ export interface Receipt {
   processed: boolean;
   items?: ReceiptItem[];
   totalAmount: number;
+  text?: string;
+  discrepancyDetected?: boolean;
   taxDetails: {
     taxRateA: { rate: number; net: number; tax: number; gross: number; };
     taxRateB: { rate: number; net: number; tax: number; gross: number; };
@@ -44,8 +46,8 @@ export interface CategoryMapping {
   category: CategoryName;
 }
 
-// Adding Transaction interface to include receipts, items, and categories
-interface Transaction {
+// Removing Dexie.Transaction from NutriScanTransaction interface
+interface NutriScanTransaction {
   receipts: Table<Receipt>;
   items: Table<ReceiptItem>;
   categories: Table<Category>;
@@ -59,14 +61,23 @@ export class NutriScanDB extends Dexie {
 
   constructor() {
     super('nutriscan');
-    this.version(6).stores({
-      receipts: '++id, storeName, storeAddress, uploadDate, purchaseDate, processed, totalAmount',
+    this.version(7).stores({
+      receipts: '++id, storeName, storeAddress, uploadDate, purchaseDate, processed, totalAmount, discrepancyDetected',
       items: '++id, receiptId, category, name, taxRate, price, quantity, pricePerUnit',
       categories: '++id, name, itemCount, color',
       categoryMappings: '++id, keyword, category'
     });
 
-    this.version(5).upgrade(tx => {
+    this.version(7).upgrade(tx => {
+      return tx.receipts.toCollection().modify(receipt => {
+        if (!receipt.text) receipt.text = '';
+        if (typeof receipt.discrepancyDetected === 'undefined') {
+          receipt.discrepancyDetected = false;
+        }
+      });
+    });
+
+    this.version(6).upgrade(tx => {
       return tx.receipts.toCollection().modify(receipt => {
         if (!receipt.storeAddress) receipt.storeAddress = '';
         if (!receipt.purchaseDate) receipt.purchaseDate = receipt.uploadDate;

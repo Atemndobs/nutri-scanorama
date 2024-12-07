@@ -12,6 +12,9 @@ export function validateAndCalculateTotal(
   lines: string[],
   items: ReceiptItem[],
 ): { total: number; method: 'explicit' | 'calculated' } {
+  // Calculate items total for validation
+  const itemsTotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+
   // Try to find explicit total with OCR error tolerance
   const totalPatterns = [
     // Common German total keywords with fuzzy matching
@@ -48,7 +51,6 @@ export function validateAndCalculateTotal(
         const total = cleanPrice(match[1]);
         if (total > 0) {
           // Validate total is reasonable (not more than 50% different from sum of items)
-          const itemsTotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
           if (itemsTotal === 0 || (Math.abs(total - itemsTotal) / itemsTotal) <= 0.5) {
             return { total, method: 'explicit' };
           }
@@ -72,6 +74,41 @@ export function validateAndCalculateTotal(
   }
 
   throw new ReceiptValidationError('Unable to determine receipt total');
+}
+
+// Renamed function to better reflect its purpose
+export function checkForDiscrepancy(items: ReceiptItem[], extractedTotal: number): { isValid: boolean; calculatedTotal: number } {
+  const calculatedTotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+  const tolerance = 0.01; // 1 cent tolerance for floating-point arithmetic
+  
+  // Check if the difference is significant (more than tolerance)
+  const difference = Math.abs(calculatedTotal - extractedTotal);
+  const isValid = difference <= tolerance;
+
+  return {
+    isValid,
+    calculatedTotal
+  };
+}
+
+export function detectDiscrepancy(extractedTotal: number, calculatedTotal: number, items: ReceiptItem[]): boolean {
+  console.debug('[DISCREPANCY_CHECK] Starting discrepancy detection', {
+    extractedTotal,
+    calculatedTotal,
+    itemsCount: items.length,
+    items: items.map(i => ({ name: i.name, price: i.totalPrice }))
+  });
+
+  const threshold = 0.01; // 1 cent difference threshold
+  const hasDiscrepancy = Math.abs(extractedTotal - calculatedTotal) > threshold;
+  
+  console.debug('[DISCREPANCY_CHECK] Discrepancy check result', {
+    hasDiscrepancy,
+    difference: Math.abs(extractedTotal - calculatedTotal),
+    threshold
+  });
+
+  return hasDiscrepancy;
 }
 
 export function cleanPrice(priceStr: string): number {

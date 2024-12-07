@@ -2,27 +2,7 @@ import type { CategoryName } from '@/types/categories';
 import { db } from '@/lib/db';
 import { validateAndCalculateTotal, extractCommonDate, cleanPrice } from './receipt-utils';
 import { ReceiptValidationError } from './errors';
-
-interface ParsedReweItem {
-  name: string;
-  quantity?: number;
-  pricePerUnit?: number;
-  totalPrice: number;
-  taxRate: string;
-  category: CategoryName;
-}
-
-interface ParsedReweReceipt {
-  storeName: string;
-  storeAddress: string;
-  date: Date;
-  items: ParsedReweItem[];
-  totalAmount: number;
-  taxDetails: {
-    taxRateA: { rate: number; net: number; tax: number; gross: number; };
-    taxRateB: { rate: number; net: number; tax: number; gross: number; };
-  };
-}
+import {ParsedReceipt as ParsedReweReceipt} from '@/types/receipt-types'
 
 async function determineCategory(itemName: string): Promise<CategoryName> {
   return db.determineCategory(itemName);
@@ -44,6 +24,7 @@ export function extractStoreInfo(lines: string[]): { storeName: string; storeAdd
     line.replace(/\s/g, '').toUpperCase().includes('REWE')  // Check also without spaces
   );
 
+  // Removed store name assignment logic from the parser
   if (isReweReceipt) {
     storeInfo.storeName = 'REWE';
   }
@@ -74,11 +55,15 @@ export async function parseReweReceipt(text: string, receiptId: number): Promise
     const { storeName, storeAddress } = extractStoreInfo(lines);
     const purchaseDate = extractCommonDate(lines) || new Date();
 
-    // If store is Other and no valid address found, likely a failed scan
-    if (storeName === 'Other' && !storeAddress) {
-      await db.deleteFailedScan(receiptId);
-      throw new ReceiptValidationError('Shop is unknown and no valid address found');
-    }
+    // If store is Other and no valid address found, allow processing to continue
+    // if (storeName === 'Other' && !storeAddress) {
+    //   console.warn('Store is unknown and no valid address found.');
+    //   storeName = prompt('Store not recognized. Please enter the store name:') || 'Unknown Store';
+    //   storeAddress = prompt('Please enter the store address:') || '';
+
+    //   storeName = 'Unknown Store';
+    //   storeAddress =  '';
+    // }
 
     // Initialize receipt data
     const receipt: ParsedReweReceipt = {
@@ -90,7 +75,8 @@ export async function parseReweReceipt(text: string, receiptId: number): Promise
       taxDetails: {
         taxRateA: { rate: 19, net: 0, tax: 0, gross: 0 },
         taxRateB: { rate: 7, net: 0, tax: 0, gross: 0 }
-      }
+      },
+      discrepancyDetected: false
     };
 
     // Parse items
@@ -120,7 +106,7 @@ export async function parseReweReceipt(text: string, receiptId: number): Promise
 
         // Match item pattern: name followed by price and tax rate
         // More flexible pattern to handle various formats
-        const itemMatch = line.match(/^.*?(\d+[,\.]\d+)\s*([AB])\s*$/);
+        const itemMatch = line.match(/^.*?(\d+[,.]\d+)\s*([AB])\s*$/);
         if (itemMatch) {
           try {
             const [fullLine, priceStr, taxRate] = itemMatch;
