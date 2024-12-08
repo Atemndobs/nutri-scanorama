@@ -26,7 +26,7 @@ export type ModelType = 'fast' | 'precise';
 
 const MODELS = {
   fast: 'meta-llama-3.2-1b',
-  precise: 'qwen2.5-coder-32b-instruct:2'
+  precise: 'qwen2.5-coder-32b-instruct'
 } as const;
 
 export class ProcessedReceipt {
@@ -183,6 +183,74 @@ Rules:
         console.error('[OLLAMA] Error message:', error.message);
       }
       throw new Error('Failed to process receipt');
+    }
+  }
+
+  async processCategoryText(text: string): Promise<Array<{ keyword: string, category: CategoryName }>> {
+    const systemPrompt = `You are a product categorizer. Given a list of product names or descriptions, return ONLY valid JSON with categorized items.
+    
+    IMPORTANT: You MUST ONLY use these exact categories:
+    - Fruits
+    - Vegetables
+    - Dairy
+    - Meat
+    - Bakery
+    - Beverages
+    - Snacks
+    - Cereals
+    - Sweets
+    - Oils
+    - Other (use this if item doesn't fit in any other category)
+
+    Guidelines:
+    - Fruits: Fresh, dried, or processed fruits
+    - Vegetables: Fresh, frozen, or canned vegetables
+    - Dairy: Milk, cheese, yogurt, butter, cream
+    - Meat: All meats, fish, and poultry
+    - Bakery: Bread, pastries, cakes
+    - Beverages: Drinks, water, juice, soda
+    - Snacks: Chips, crackers, nuts
+    - Cereals: Breakfast cereals, oats, muesli
+    - Sweets: Candy, chocolate, desserts
+    - Oils: Cooking oils, vinegar, dressings
+    - Other: Items that don't fit above categories
+
+    Required JSON format:
+    {
+      "items": [
+        {
+          "keyword": string,    // The product name or description
+          "category": string    // MUST be one of the exact categories listed above
+        }
+      ]
+    }`;
+
+    try {
+      const response = await fetch(this.apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: this.model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: text }
+          ],
+          stream: false
+        })
+      });
+
+      const data = await response.json() as OllamaApiResponse;
+      const jsonMatch = data.response.match(/\{[\s\S]*\}/);
+      
+      if (!jsonMatch) {
+        throw new Error('No valid JSON found in response');
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      return parsed.items;
+    } catch (error) {
+      console.error('[OLLAMA] Error processing categories:', error);
+      return [];
     }
   }
 

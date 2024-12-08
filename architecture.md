@@ -87,6 +87,324 @@ The AI integration has been fully implemented with the following features:
 - Database updates and sync queue integration
 - UI state management and updates
 
+## AI Text Extraction and Processing
+
+### Overview
+The AI text extraction system uses a combination of OCR and LLM processing to accurately extract and categorize receipt data. The system is designed to handle various receipt formats while maintaining high accuracy and performance.
+
+### Core Components
+
+1. **OCR Processing**
+   ```typescript
+   interface OCRResult {
+     text: string;
+     confidence: number;
+     blocks: Array<{
+       text: string;
+       bbox: BoundingBox;
+       confidence: number;
+     }>;
+   }
+   ```
+   - Tesseract.js for text extraction
+   - Block-level confidence scoring
+   - Position information preservation
+   - Multi-language support
+
+2. **LLM Processing**
+   ```typescript
+   interface ProcessedReceipt {
+     storeName: string;
+     items: Array<{
+       name: string;
+       category: CategoryName;
+       price: number;
+       quantity?: number;
+       unit?: string;
+       pricePerUnit?: number;
+       taxRate?: string;
+     }>;
+     metadata: {
+       storeAddress?: string;
+       date?: string;
+       totalAmount: number;
+       taxDetails?: {
+         taxRateA: { rate: number, net: number, tax: number, gross: number };
+         taxRateB?: { rate: number, net: number, tax: number, gross: number };
+       };
+     };
+   }
+   ```
+   - Structured data extraction
+   - Category assignment
+   - Price and quantity parsing
+   - Tax information extraction
+
+3. **Model Selection**
+   ```typescript
+   type ModelType = 'fast' | 'precise';
+   
+   const MODELS = {
+     fast: 'meta-llama-3.2-1b',
+     precise: 'qwen2.5-coder-32b-instruct'
+   };
+   ```
+   - Dual model approach
+   - Performance vs accuracy tradeoff
+   - Automatic fallback mechanisms
+
+### Processing Pipeline
+
+1. **Image Preprocessing**
+   - Resolution optimization
+   - Contrast enhancement
+   - Noise reduction
+   - Orientation correction
+
+2. **Text Extraction**
+   - OCR processing
+   - Confidence filtering
+   - Layout analysis
+   - Text cleaning
+
+3. **Data Structuring**
+   - Store detection
+   - Item parsing
+   - Price extraction
+   - Category assignment
+
+### Design Decisions
+
+1. **Dual Model Strategy**
+   - **Decision**: Implement both fast and precise models
+   - **Rationale**:
+     - Balances speed and accuracy
+     - Handles varying receipt complexity
+     - Optimizes resource usage
+     - Provides user choice
+
+2. **Strict Category Enforcement**
+   - **Decision**: Use predefined category set
+   - **Rationale**:
+     - Ensures data consistency
+     - Improves categorization accuracy
+     - Simplifies reporting
+     - Better user experience
+
+3. **Structured Response Format**
+   - **Decision**: Enforce strict JSON schema
+   - **Rationale**:
+     - Reliable parsing
+     - Type safety
+     - Error prevention
+     - Easy validation
+
+4. **Progressive Processing**
+   - **Decision**: Multi-stage extraction pipeline
+   - **Rationale**:
+     - Better error handling
+     - Incremental feedback
+     - Recovery options
+     - Performance optimization
+
+### Error Handling
+
+1. **OCR Failures**
+   - Confidence thresholds
+   - Retry mechanisms
+   - Alternative processing paths
+   - User feedback
+
+2. **LLM Processing**
+   - Response validation
+   - Fallback processing
+   - Format correction
+   - Error reporting
+
+### Performance Optimization
+
+1. **Processing Strategy**
+   - Parallel processing where possible
+   - Caching of intermediate results
+   - Resource usage monitoring
+   - Background processing
+
+2. **Memory Management**
+   - Efficient data structures
+   - Stream processing
+   - Resource cleanup
+   - Memory limits
+
+### Future Enhancements
+
+1. **Model Improvements**
+   - Custom model training
+   - Receipt-specific fine-tuning
+   - Multi-language support
+   - Performance optimization
+
+2. **Feature Additions**
+   - Advanced tax handling
+   - Currency conversion
+   - Receipt comparison
+   - Fraud detection
+
+### Testing Strategy
+
+1. **Unit Tests**
+   - OCR accuracy
+   - Parser reliability
+   - Category assignment
+   - Error handling
+
+2. **Integration Tests**
+   - End-to-end processing
+   - Model switching
+   - Error recovery
+   - Performance metrics
+
+### Security Considerations
+
+1. **Data Protection**
+   - Personal information handling
+   - Data retention policies
+   - Access controls
+   - Encryption
+
+2. **Model Security**
+   - Input validation
+   - Output sanitization
+   - Resource limits
+   - Version control
+
+## Category Management System
+
+### Overview
+The category management system is designed to provide a flexible and maintainable way to categorize items from receipts, both automatically and manually. The system consists of several key components that work together to provide a seamless categorization experience.
+
+### Core Components
+
+1. **Category Data Structure**
+   ```typescript
+   type CategoryName = 
+     | 'Fruits' | 'Vegetables' | 'Dairy' | 'Meat'
+     | 'Bakery' | 'Beverages' | 'Snacks' | 'Cereals'
+     | 'Other' | 'Sweets' | 'Oils';
+   ```
+   - Fixed set of categories to ensure consistency
+   - Each category has an associated color for visual identification
+   - 'Other' category serves as a fallback for uncategorized items
+
+2. **Category Mapping System**
+   - Maintains a database of keyword-to-category mappings
+   - Supports both manual and AI-generated mappings
+   - Uses case-insensitive matching for better accuracy
+   - Mappings are stored in IndexedDB for offline access
+
+3. **AI Integration**
+   - Uses Ollama service for intelligent categorization
+   - Strict prompt engineering to ensure category consistency
+   - Fallback mechanisms for handling unknown items
+   - Real-time processing with user feedback
+
+### User Interface Design
+
+1. **Category Manager Component**
+   - Collapsible category sections for better organization
+   - Preview mode showing limited items per category
+   - "Show More" functionality for detailed viewing
+   - Immediate feedback for all user actions
+   - Integrated AI categorization for bulk processing
+
+2. **Settings Integration**
+   - Category management placed in Settings for easy access
+   - Clear separation from storage management
+   - Intuitive interface for adding/removing mappings
+   - Visual feedback through toast notifications
+
+### Data Flow
+
+1. **Manual Categorization**
+   ```
+   User Input → Keyword/Category Selection → Database Update → UI Refresh
+   ```
+
+2. **AI Categorization**
+   ```
+   Text Input → Ollama Processing → Mapping Creation → Database Update → UI Refresh
+   ```
+
+3. **Category Mapping Usage**
+   ```
+   Receipt Upload → Item Extraction → Category Lookup → Default/AI Assignment
+   ```
+
+### Design Decisions
+
+1. **Fixed Category Set**
+   - **Decision**: Use a fixed set of categories rather than user-defined categories
+   - **Rationale**: 
+     - Ensures consistency across the application
+     - Simplifies AI training and categorization
+     - Prevents category proliferation
+     - Makes statistics and visualization more meaningful
+
+2. **Two-Tier Categorization**
+   - **Decision**: Implement both manual and AI-powered categorization
+   - **Rationale**:
+     - Manual mappings provide precise control
+     - AI categorization handles bulk processing
+     - Hybrid approach maximizes accuracy and efficiency
+
+3. **Collapsible UI**
+   - **Decision**: Use collapsible sections with preview mode
+   - **Rationale**:
+     - Reduces visual clutter
+     - Improves navigation in large datasets
+     - Maintains access to full information when needed
+
+4. **Local Storage**
+   - **Decision**: Store category mappings in IndexedDB
+   - **Rationale**:
+     - Enables offline functionality
+     - Provides fast access to mappings
+     - Supports large numbers of mappings
+
+### Future Considerations
+
+1. **Performance Optimization**
+   - Implement pagination for large mapping sets
+   - Add caching for frequently used mappings
+   - Optimize database queries for faster lookups
+
+2. **Feature Enhancements**
+   - Add bulk import/export of mappings
+   - Implement mapping suggestions based on user patterns
+   - Add category statistics and insights
+   - Support for subcategories if needed
+
+3. **AI Improvements**
+   - Fine-tune AI categorization based on user corrections
+   - Add confidence scores for AI categorizations
+   - Implement batch processing for large datasets
+
+### Validation and Testing
+
+1. **Category Mapping Tests**
+   - Verify case-insensitive matching
+   - Test duplicate handling
+   - Validate category constraints
+
+2. **AI Integration Tests**
+   - Test prompt effectiveness
+   - Verify category consistency
+   - Measure categorization accuracy
+
+3. **UI Testing**
+   - Verify responsive design
+   - Test accessibility features
+   - Validate user interaction flows
+
 ## Current Application Features
 
 ### Home Page
