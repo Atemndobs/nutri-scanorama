@@ -26,7 +26,7 @@ export type ModelType = 'fast' | 'precise';
 
 const MODELS = {
   fast: 'meta-llama-3.2-1b',
-  precise: 'qwen2.5-coder-32b-instruct'
+  precise: 'qwen2.5-coder-23b-instruct'
 } as const;
 
 export class ProcessedReceipt {
@@ -51,7 +51,7 @@ export class ProcessedReceipt {
   }
 }
 
-class OllamaService {
+class LMStudioService {
   private readonly apiUrl: string;
   private model: string;
 
@@ -62,17 +62,17 @@ class OllamaService {
 
   setModel(type: ModelType) {
     this.model = MODELS[type];
-    console.log(`[OLLAMA] Switched to ${type} model:`, this.model);
+    console.log(`[LMSTUDIO] Switched to ${type} model:`, this.model);
   }
 
   async processReceipt(receiptText: string): Promise<ProcessedReceipt> {
-    console.log('\n[OLLAMA] Starting receipt processing...');
-    console.log('[OLLAMA] Receipt text length:', receiptText.length);
-    console.log('[OLLAMA] First 100 chars of receipt:', receiptText.substring(0, 100));
+    console.log('\n[LMSTUDIO] Starting receipt processing...');
+    console.log('[LMSTUDIO] Receipt text length:', receiptText.length);
+    console.log('[LMSTUDIO] First 100 chars of receipt:', receiptText.substring(0, 100));
 
     try {
       const itemsExtracted = extractItemsFromText(receiptText);
-      console.log('[OLLAMA] Extracted items:', itemsExtracted);
+      console.log('[LMSTUDIO] Extracted items:', itemsExtracted);
 
       const systemPrompt = `You are a receipt parser that MUST return ONLY valid JSON, no other text.
 
@@ -117,7 +117,7 @@ Rules:
         stream: false,
       };
 
-      console.log('\n[OLLAMA] Sending request to LM Studio:');
+      console.log('\n[LMSTUDIO] Sending request to LM Studio:');
       console.log('----------------------------------------');
       console.log('URL:', this.apiUrl);
       console.log('Model:', this.model);
@@ -144,7 +144,7 @@ Rules:
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error('[OLLAMA] Server error:', {
+          console.error('[LMSTUDIO] Server error:', {
             status: response.status,
             statusText: response.statusText,
             error: errorText
@@ -154,7 +154,7 @@ Rules:
 
         const data = await response.json();
 
-        console.log('\n[OLLAMA] Received response:');
+        console.log('\n[LMSTUDIO] Received response:');
         console.log('----------------------------------------');
         console.log('Status:', response.status);
         console.log('Headers:', Object.fromEntries(response.headers));
@@ -171,16 +171,16 @@ Rules:
 
         return new ProcessedReceipt('', items, totalAmount);
       } catch (error) {
-        console.error('\n[OLLAMA] Error processing receipt:', error);
+        console.error('\n[LMSTUDIO] Error processing receipt:', error);
         if (error instanceof Error) {
-          console.error('[OLLAMA] Error message:', error.message);
+          console.error('[LMSTUDIO] Error message:', error.message);
         }
         throw new Error('Failed to process receipt');
       }
     } catch (error) {
-      console.error('\n[OLLAMA] Error processing receipt:', error);
+      console.error('\n[LMSTUDIO] Error processing receipt:', error);
       if (error instanceof Error) {
-        console.error('[OLLAMA] Error message:', error.message);
+        console.error('[LMSTUDIO] Error message:', error.message);
       }
       throw new Error('Failed to process receipt');
     }
@@ -249,7 +249,7 @@ Rules:
       const parsed = JSON.parse(jsonMatch[0]);
       return parsed.items;
     } catch (error) {
-      console.error('[OLLAMA] Error processing categories:', error);
+      console.error('[LMSTUDIO] Error processing categories:', error);
       return [];
     }
   }
@@ -259,11 +259,11 @@ Rules:
       // Extract content from the choices array
       const content = responseData.choices?.[0]?.message?.content;
       if (!content) {
-        console.log('\n[OLLAMA] No content found in response');
+        console.log('\n[LMSTUDIO] No content found in response');
         return [];
       }
 
-      console.log('\n[OLLAMA] Parsing response content:', content);
+      console.log('\n[LMSTUDIO] Parsing response content:', content);
       
       try {
         // Try to extract JSON from the response
@@ -274,7 +274,7 @@ Rules:
         const parsedData = JSON.parse(jsonContent);
         
         if (!parsedData.items || !Array.isArray(parsedData.items)) {
-          console.error('[OLLAMA] Invalid response format: missing or invalid items array');
+          console.error('[LMSTUDIO] Invalid response format: missing or invalid items array');
           return [];
         }
 
@@ -302,14 +302,14 @@ Rules:
           );
 
       } catch (jsonError) {
-        console.error('[OLLAMA] Failed to parse JSON response:', jsonError);
-        console.log('[OLLAMA] Raw content:', content);
+        console.error('[LMSTUDIO] Failed to parse JSON response:', jsonError);
+        console.log('[LMSTUDIO] Raw content:', content);
         
         // Fallback to the old line-by-line parsing
         return this.fallbackParsing(content);
       }
     } catch (error) {
-      console.error('[OLLAMA] Error parsing response:', error);
+      console.error('[LMSTUDIO] Error parsing response:', error);
       return [];
     }
   }
@@ -346,4 +346,5 @@ Rules:
   }
 }
 
-export const ollamaService = new OllamaService();
+export const lmstudioService = new LMStudioService();
+export default lmstudioService;

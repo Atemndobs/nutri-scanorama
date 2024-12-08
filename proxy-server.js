@@ -3,7 +3,9 @@ import cors from 'cors';
 import fetch from 'node-fetch';
 
 const app = express();
-const TARGET_URL = 'https://mac.goose-neon.ts.net';
+const TARGET_URL = 'https://mac.goose-neon.ts.net' 
+// const TARGET_URL = 'http://localhost:1234';
+
 
 // Add body parsing middleware
 app.use(express.json());

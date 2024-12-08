@@ -11,7 +11,7 @@ import { defaultReceiptParser } from '@/lib/parsers/default-parser'; // Import d
 import { ReceiptValidationError } from "@/lib/parsers/errors";
 import Tesseract from 'tesseract.js';
 import type { CategoryName } from "@/types/categories";
-import { ollamaService } from '@/lib/ollama-service';
+import { lmstudioService } from '@/lib/lmstudio-service';
 import { syncManager } from '@/lib/sync-manager';
 
 export const UploadButton = () => {
@@ -241,8 +241,8 @@ export const UploadButton = () => {
     try {
       setIsAiExtracting(true);
       
-      // Call Ollama service to process the receipt
-      const processedReceipt = await ollamaService.processReceipt(receiptText);
+      // Call lmstudio service to process the receipt
+      const processedReceipt = await lmstudioService.processReceipt(receiptText);
       console.log('Processed Receipt:', processedReceipt);
 
       if (!processedReceipt.items.length) {

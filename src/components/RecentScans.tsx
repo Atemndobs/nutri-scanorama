@@ -15,7 +15,7 @@ import { Receipt, ReceiptItem } from "@/lib/db";
 import { capitalizeFirstLetter } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import { CategoryManager } from "@/components/CategoryManager"; // Import CategoryManager
-import { ollamaService } from "@/lib/ollama-service"; // Import Ollama service
+import { lmstudioService } from "@/lib/lmstudio-service"; // Import LMStudio service
 import { syncManager } from "@/lib/sync-manager"; // Import Sync manager
 
 interface RecentScansProps {
@@ -188,8 +188,8 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
 
       console.log('[RecentScans] Using receipt text:', receipt.text);
       
-      // Call Ollama service to process receipt
-      const processedReceipt = await ollamaService.processReceipt(receipt.text);
+      // Call LMStudio service to process receipt
+      const processedReceipt = await lmstudioService.processReceipt(receipt.text);
       console.debug('[RecentScans] AI Processed Receipt:', processedReceipt);
 
       if (!processedReceipt?.items || processedReceipt.items.length === 0) {
@@ -302,7 +302,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                             onClick={() => {
                               const newType = modelType === 'fast' ? 'precise' : 'fast';
                               setModelType(newType);
-                              ollamaService.setModel(newType);
+                              lmstudioService.setModel(newType);
                               toast({
                                 title: `Switched to ${newType} model`,
                                 description: newType === 'fast' 
@@ -422,7 +422,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                         onClick={() => {
                           const newType = modelType === 'fast' ? 'precise' : 'fast';
                           setModelType(newType);
-                          ollamaService.setModel(newType);
+                          lmstudioService.setModel(newType);
                           toast({
                             title: `Switched to ${newType} model`,
                             description: newType === 'fast' 

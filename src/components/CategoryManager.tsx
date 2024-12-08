@@ -11,7 +11,7 @@ import {
 import { Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import { db } from '@/lib/db';
 import { Category, CategoryName } from '@/types/categories';
-import { ollamaService } from '@/lib/ollama-service';
+import { lmstudioService } from '@/lib/lmstudio-service';
 import { CategoryMapping } from '@/lib/db';
 import { useToast } from './ui/use-toast';
 import {
@@ -93,7 +93,7 @@ export function CategoryManager() {
 
     setIsProcessing(true);
     try {
-      const categorizedItems = await ollamaService.processCategoryText(poorlyExtractedText);
+      const categorizedItems = await lmstudioService.processCategoryText(poorlyExtractedText);
       
       for (const item of categorizedItems) {
         await db.categoryMappings.add({
