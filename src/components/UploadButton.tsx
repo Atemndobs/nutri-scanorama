@@ -31,42 +31,49 @@ export const UploadButton = () => {
 
       // Convert file to base64
       const reader = new FileReader();
+      reader.readAsDataURL(file);
+      
       reader.onloadend = async () => {
-        const base64String = reader.result as string;
-        
-        // Use Tesseract.js to extract text from the image
-        const result = await Tesseract.recognize(
-          base64String,
-          'deu', // German language
-          {
-            logger: m => console.log(m)
-          }
-        );
-
-        console.log('Raw Extracted Text:', result.data.text);
-        
-        // Create initial receipt record
-        const receiptId = await db.receipts.add({
-          storeName: "Processing...",
-          storeAddress: "",
-          imageData: base64String,
-          uploadDate: new Date(),
-          purchaseDate: new Date(),
-          processed: false,
-          totalAmount: 0,
-          text: result.data.text, // Save the OCR text
-          taxDetails: {
-            taxRateA: { rate: 19, net: 0, tax: 0, gross: 0 },
-            taxRateB: { rate: 7, net: 0, tax: 0, gross: 0 }
-          }
-        });
-
-        toast({
-          title: "Receipt uploaded",
-          description: "Processing receipt data...",
-        });
-
         try {
+          const base64String = reader.result as string;
+          
+          // Create the receipt record first
+          const receiptId = await db.receipts.add({
+            storeName: "Processing...",
+            storeAddress: "",
+            imageData: base64String,
+            uploadDate: new Date(),
+            purchaseDate: new Date(),
+            processed: false,
+            totalAmount: 0,
+            text: "",
+            taxDetails: {
+              taxRateA: { rate: 19, net: 0, tax: 0, gross: 0 },
+              taxRateB: { rate: 7, net: 0, tax: 0, gross: 0 }
+            }
+          });
+
+          toast({
+            title: "Receipt uploaded",
+            description: "Processing receipt data...",
+          });
+          
+          // Then start OCR processing
+          const result = await Tesseract.recognize(
+            base64String,
+            'deu', // German language
+            {
+              logger: m => console.log(m)
+            }
+          );
+
+          console.log('Raw Extracted Text:', result.data.text);
+          
+          // Update the receipt with OCR text
+          await db.receipts.update(receiptId, {
+            text: result.data.text
+          });
+
           console.log('Lowercase Text:', result.data.text.toLowerCase());
 
           // Determine which parser to use based on the content
@@ -76,7 +83,7 @@ export const UploadButton = () => {
           // Split the text into lines for detailed logging
           const lines = result.data.text.split('\n');
           lines.forEach((line, index) => {
-              console.log(`Line ${index + 1}: ${line}`); // Log each line for detailed inspection
+            console.log(`Line ${index + 1}: ${line}`); // Log each line for detailed inspection
           });
 
           const isAldi = lowerCaseText.includes('aldi');
@@ -112,11 +119,12 @@ export const UploadButton = () => {
             name: item.name,
             category: await db.determineCategory(item.name),
             price: item.totalPrice,
+            totalPrice: item.totalPrice,
             quantity: item.quantity,
             pricePerUnit: item.pricePerUnit,
-            taxRate: item.taxRate,
+            taxRate: 0, // Default value for taxRate
             receiptId: receiptId,
-            date: parsedData.date
+            date: parsedData.date,
           })));
 
           // Calculate total from items
@@ -222,17 +230,7 @@ export const UploadButton = () => {
             console.error('Error deleting failed scan:', deleteError);
           }
         }
-
-        // Reset file input
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
-        if (cameraInputRef.current) {
-          cameraInputRef.current.value = "";
-        }
       };
-
-      reader.readAsDataURL(file);
     } catch (error) {
       console.error('Upload error:', error);
       toast({
@@ -249,24 +247,25 @@ export const UploadButton = () => {
     try {
       setIsAiExtracting(true);
       
-      // Call Ollama service to extract items
-      const extractedItems = await ollamaService.extractItems(receiptText);
-      console.log('AI Extracted Items:', extractedItems);
+      // Call Ollama service to process the receipt
+      const processedReceipt = await ollamaService.processReceipt(receiptText);
+      console.log('Processed Receipt:', processedReceipt);
 
-      if (!extractedItems?.items?.length) {
-        throw new Error('No items extracted by AI');
+      if (!processedReceipt.items.length) {
+        throw new Error('No items processed from receipt');
       }
 
       // Process each extracted item
-      const processedItems = await Promise.all(extractedItems.items.map(async (item) => {
+      const processedItems = await Promise.all(processedReceipt.items.map(async (item) => {
         const category = await db.determineCategory(item.name);
         return {
           ...item,
           category,
           receiptId,
           timestamp: Date.now(),
-          price: item.pricePerUnit || 0, // Adjust this based on your logic
-          date: new Date(Date.now()) // Convert timestamp to Date object
+          price: item.price || 0, // Use totalPrice instead of pricePerUnit
+          date: new Date(Date.now()), // Convert timestamp to Date object
+          taxRate: item.taxRate || '0.1', // Add taxRate property
         };
       }));
 

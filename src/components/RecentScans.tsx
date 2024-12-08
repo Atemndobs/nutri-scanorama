@@ -80,6 +80,9 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
       .limit(3)
       .toArray();
 
+    // Get total count of receipts
+    const totalCount = await db.receipts.count();
+
     console.debug('[RecentScans] Raw receipts from DB:', recentReceipts.map(r => ({
       id: r.id,
       storeName: r.storeName,
@@ -123,7 +126,11 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
     );
 
     console.debug('[RecentScans] Finished loading all receipts with items');
-    return receiptsWithItemsAndCategories;
+    return { receipts: receiptsWithItemsAndCategories, totalCount };
+  });
+
+  const totalScannedItems = useLiveQuery(async () => {
+    return await db.items.count();
   });
 
   const handleReceiptClick = async (receipt: Receipt) => {
@@ -189,9 +196,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
           toast({
             title: 'Extraction failed',
             description: 'Unable to extract items after multiple attempts. Please try a different receipt or contact support.',
-            status: 'error',
-            duration: 7000,
-            isClosable: true,
+            duration: 7000
           });
           // Reset attempts for this receipt
           setExtractionAttempts(prev => ({ ...prev, [receipt.id]: 0 }));
@@ -199,9 +204,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
           toast({
             title: 'No items found',
             description: `Please try scanning the receipt again (Attempt ${currentAttempts}/3)`,
-            status: 'warning',
-            duration: 5000,
-            isClosable: true,
+            duration: 5000
           });
         }
         return;
@@ -217,11 +220,10 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
           name: item.name,
           category,
           receiptId: receipt.id!,
-          timestamp: Date.now(),
-          price: item.pricePerUnit || item.totalPrice || 0,
-          totalPrice: item.totalPrice || 0, // Add totalPrice to the processed items
-          date: new Date(Date.now()),
-          taxRate: '0.1', // Convert taxRate to string format
+          price: item.price || 0,
+          pricePerUnit: item.price,
+          taxRate: item.taxRate || '0.1',
+          date: receipt.purchaseDate,
         };
       }));
 
@@ -251,9 +253,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
       toast({
         title: "Error",
         description: "An error occurred while processing the receipt. Please try again.",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
+        duration: 5000
       });
     } finally {
       setIsAiExtracting(false);
@@ -263,15 +263,20 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
 
   return (
     <div className={`space-y-4 ${className}`}>
-      {receipts && receipts.length > 0 && (
+      {receipts?.receipts.length > 0 && (
         <>
           <div className="flex justify-center items-center mb-4">
-            <h2 className="text-lg font-semibold">Recent Scans</h2>
-            <Link to="/scans" className="text-nutri-purple hover:underline ml-2">
-              &gt;
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold">Recent Scans</h2>
+              <Link to="/scans" className="hover:opacity-80 transition-opacity">
+                <Badge variant="secondary" className="ml-2">{receipts.totalCount}</Badge>
+              </Link>
+            </div>
+            <Link to="/scans" className="text-nutri-purple hover:underline ml-2 flex items-center">
+              <span className="text-lg">&gt;</span>
             </Link>
           </div>
-          {receipts?.map((receipt) => (
+          {receipts?.receipts.map((receipt) => (
             <Card
               key={receipt.id}
               className="bg-card/50 backdrop-blur-sm hover:bg-card/60 transition-colors cursor-pointer"

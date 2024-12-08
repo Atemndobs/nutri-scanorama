@@ -1,5 +1,6 @@
 import { ParsedItem } from '@/types/receipt-types';
 import { CategoryName } from '@/types/categories';
+import { extractItemsFromText } from './parsers/default-parser';
 
 const API_URL = 'http://localhost:3002/api/v1/chat/completions';
 
@@ -58,6 +59,9 @@ class OllamaService {
     console.log('[OLLAMA] First 100 chars of receipt:', receiptText.substring(0, 100));
 
     try {
+      const itemsExtracted = extractItemsFromText(receiptText);
+      console.log('[OLLAMA] Extracted items:', itemsExtracted);
+
       const requestPayload = {
         model: this.model,
         messages: [
@@ -143,32 +147,69 @@ class OllamaService {
 
   private parseResponseToItems(responseData: any): Array<{ name: string; category: string; price: number }> {
     try {
-      // Extract the items from the response
-      let items = [];
-      if (typeof responseData.choices?.[0]?.message?.content === 'string') {
-        const content = responseData.choices[0].message.content;
-        console.log('\n[OLLAMA] Parsing response content:', content);
-        
-        // Split the content into lines and process each line
-        const lines = content.split('\n');
-        for (let line of lines) {
-          // Skip empty lines and headers
-          if (!line.trim() || line.includes('Here are the shopping items') || line.includes('Note:')) {
-            continue;
-          }
+      const items = [];
+      
+      // Extract content from the choices array
+      const content = responseData.choices?.[0]?.message?.content;
+      if (!content) {
+        console.log('\n[OLLAMA] No content found in response');
+        return [];
+      }
 
-          // Try both formats: parentheses (X,XX €) and dash format (- X,XX)
-          let match = line.match(/\*?\s*(.*?)\s*\((\d+[.,']?\d*)\s*€\)/);  // Format: ITEM (X,XX €)
-          if (!match) {
-            match = line.match(/(.*?)\s*-\s*[€£]?([\d,.']+)/);  // Format: ITEM - X,XX
-          }
+      console.log('\n[OLLAMA] Parsing response content:', content);
+      
+      // Split the content into lines and process each line
+      const lines = content.split('\n');
+      for (const line of lines) {
+        // Skip empty lines and headers
+        if (!line.trim() || line.includes('Here are the shopping items')) {
+          continue;
+        }
 
+        // Remove bullet points and clean the line
+        const cleanLine = line.replace(/^[-•*]\s*/, '').trim();
+        if (!cleanLine) continue;
+
+        const priceFormats = [
+          // Format: Item name - price EUR
+          /^(.*?)\s*-\s*([\d,.]+)\s*(?:EUR|€)/i,
+          // Format: Item name (code) - price
+          /^(.*?)\s*\([^)]*\)\s*-\s*([\d,.]+)/,
+          // Format: Item name - price/unit
+          /^(.*?)\s*-\s*([\d,.]+)\s*EUR\/(?:kg|g|unit)/i,
+          // Format: Item name price EUR
+          /^(.*?)\s+([\d,.]+)\s*(?:EUR|€)/i
+        ];
+
+        let matched = false;
+        for (const format of priceFormats) {
+          const match = cleanLine.match(format);
           if (match) {
             const [_, name, priceStr] = match;
-            const cleanName = name.replace(/\*|\+/g, '').trim();
+            const cleanName = name.replace(/\([^)]*\)/g, '').trim(); // Remove parenthetical content
             const cleanPrice = parseFloat(priceStr.replace(',', '.').replace("'", ''));
 
-            if (!isNaN(cleanPrice) && !cleanName.toLowerCase().includes('summe')) {
+            if (!isNaN(cleanPrice) && cleanName && !cleanName.toLowerCase().includes('summe')) {
+              items.push({
+                name: cleanName,
+                category: 'UNKNOWN',
+                price: cleanPrice
+              });
+              matched = true;
+              break;
+            }
+          }
+        }
+
+        // If no format matched, try to extract any number that looks like a price
+        if (!matched) {
+          const priceMatch = cleanLine.match(/(\d+[.,']?\d*)\s*(?:EUR|€)/);
+          if (priceMatch) {
+            const name = cleanLine.replace(/(\d+[.,']?\d*)\s*(?:EUR|€)/, '').trim();
+            const cleanName = name.replace(/\([^)]*\)/g, '').trim();
+            const cleanPrice = parseFloat(priceMatch[1].replace(',', '.').replace("'", ''));
+
+            if (!isNaN(cleanPrice) && cleanName && !cleanName.toLowerCase().includes('summe')) {
               items.push({
                 name: cleanName,
                 category: 'UNKNOWN',

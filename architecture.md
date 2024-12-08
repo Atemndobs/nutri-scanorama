@@ -59,21 +59,92 @@ This document outlines the strategy for implementing parsers for various German 
 - **Error Handling**: If no items are found, the parser throws a `ReceiptValidationError` indicating that no valid items were detected.
 - **Integration**: The default parser is invoked when no recognized store is identified during the parsing process, ensuring that user input is captured for completeness.
 
-## AI Extraction Integration
+## AI Integration
 
 ### Overview
-- Introduced a feature that allows users to trigger AI-based extraction of items from receipts when discrepancies are detected between the total item price and the extracted total.
+The AI integration has been fully implemented with the following features:
+- Automatic item extraction from receipt text
+- Smart retry system with up to 3 attempts
+- Real-time progress tracking and user feedback
+- Automatic category assignment
+- Integration with sync queue and local database
+
+### Ollama Service Implementation
+- Processes raw receipt text to extract structured item data
+- Handles validation and error cases
+- Provides detailed feedback for debugging
+- Supports both initial processing and manual retries
+
+### User Interface Integration
+- Progress indicators during extraction
+- Clear success/error notifications
+- Manual retry option with attempt tracking
+- Real-time updates of extracted items
+
+### Data Flow
+- Receipt text → Ollama processing → Structured items
+- Automatic category assignment
+- Database updates and sync queue integration
+- UI state management and updates
+
+## Current Application Features
+
+### Home Page
+1. **Recent Scans**
+   - Displays recently scanned receipts with detailed item information
+   - Shows category icons and names for each item
+   - Provides a clean, modern interface for viewing scanned items
+
+2. **Top Categories**
+   - Shows the most frequently occurring categories
+   - Displays category icons with corresponding colors
+   - Helps users track their shopping patterns
+
+3. **Upload Functionality**
+   - Allows users to scan and upload receipts
+   - Processes receipts using OCR and AI extraction
+   - Automatically categorizes items based on content
+
+### Scanned Items Page
+1. **All Items View**
+   - Lists all scanned items chronologically
+   - Displays item name, category (with icon), and price
+   - Matches the home page styling for consistency
+   - Provides a comprehensive view of all scanned items
+
+### Data Management
+1. **Local Database**
+   - Uses Dexie.js for IndexedDB management
+   - Stores items with categories and metadata
+   - Enables offline functionality
+
+2. **Category System**
+   - Predefined categories with custom icons
+   - Color-coded category indicators
+   - Consistent category display across all views
 
 ### User Interface
-- A UI indication will inform users of the discrepancy and provide a button to trigger the AI extraction.
+1. **Navigation**
+   - Bottom navigation bar for easy access
+   - Intuitive icons for different sections
+   - Responsive design for mobile use
 
-### Ollama Service
-- The Ollama service will be utilized to extract items from the receipt text when triggered by the user.
-- The extracted items will be processed and returned to the application for further handling.
+2. **Styling**
+   - Modern, clean interface
+   - Consistent color scheme
+   - Backdrop blur effects for visual appeal
+   - Proper spacing and padding throughout
 
-### Synchronization with Database
-- New items extracted via AI will be added as `SyncQueueItem` entries for synchronization with the database.
-- The `SyncManager` will manage these new entries, ensuring they are queued and processed correctly.
+### AI Integration
+1. **Receipt Processing**
+   - OCR for text extraction
+   - AI-powered item categorization
+   - Smart total validation
+
+2. **Data Extraction**
+   - Intelligent item name parsing
+   - Price extraction and validation
+   - Category suggestion based on item content
 
 ## Recent Decisions and Updates
 
