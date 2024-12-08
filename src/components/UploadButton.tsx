@@ -168,9 +168,6 @@ export const UploadButton = () => {
             timestamp: Date.now()
           }]);
 
-          // Update receipt in database
-          await db.receipts.update(receiptId, receiptUpdate);
-
           // Add items to sync queue
           await syncManager.queueChanges([{
             type: 'create',
@@ -178,9 +175,6 @@ export const UploadButton = () => {
             data: items,
             timestamp: Date.now()
           }]);
-
-          // Add items to database
-          await db.items.bulkAdd(items);
 
           if (parsedData.discrepancyDetected) {
             setHasDiscrepancy(true);
@@ -276,9 +270,6 @@ export const UploadButton = () => {
         data: processedItems,
         timestamp: Date.now()
       }]);
-
-      // Add items directly to the database
-      await db.items.bulkAdd(processedItems);
 
       toast({
         title: "Success",

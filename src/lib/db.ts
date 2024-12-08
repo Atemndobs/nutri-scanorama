@@ -46,11 +46,22 @@ export interface CategoryMapping {
   category: CategoryName;
 }
 
+export interface SyncQueueItem {
+  id?: number;
+  type: 'create' | 'update' | 'delete';
+  table: string;
+  data: any;
+  timestamp: number;
+  processed?: boolean;
+}
+
 // Removing Dexie.Transaction from NutriScanTransaction interface
 interface NutriScanTransaction {
   receipts: Table<Receipt>;
   items: Table<ReceiptItem>;
   categories: Table<Category>;
+  categoryMappings: Table<CategoryMapping>;
+  syncQueue: Table<SyncQueueItem>;
 }
 
 export class NutriScanDB extends Dexie {
@@ -58,14 +69,16 @@ export class NutriScanDB extends Dexie {
   items!: Table<ReceiptItem>;
   categories!: Table<Category>;
   categoryMappings!: Table<CategoryMapping>;
+  syncQueue!: Table<SyncQueueItem>;
 
   constructor() {
     super('nutriscan');
-    this.version(7).stores({
+    this.version(8).stores({
       receipts: '++id, storeName, storeAddress, uploadDate, purchaseDate, processed, totalAmount, discrepancyDetected',
       items: '++id, receiptId, category, name, taxRate, price, quantity, pricePerUnit',
       categories: '++id, name, itemCount, color',
-      categoryMappings: '++id, keyword, category'
+      categoryMappings: '++id, keyword, category',
+      syncQueue: '++id, type, table, timestamp, processed'
     });
 
     this.version(7).upgrade(tx => {
@@ -112,7 +125,7 @@ export class NutriScanDB extends Dexie {
   }
 
   async clearAllData() {
-    await this.transaction('rw', [this.receipts, this.items, this.categories, this.categoryMappings], async () => {
+    await this.transaction('rw', [this.receipts, this.items, this.categories, this.categoryMappings, this.syncQueue], async () => {
       await this.receipts.clear();
       await this.items.clear();
       
@@ -123,6 +136,7 @@ export class NutriScanDB extends Dexie {
 
       // Keep category mappings intact
       // await this.categoryMappings.clear();
+      await this.syncQueue.clear();
     });
   }
 

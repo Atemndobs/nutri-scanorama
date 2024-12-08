@@ -22,6 +22,13 @@ interface OllamaApiResponse {
   done: boolean;
 }
 
+export type ModelType = 'fast' | 'precise';
+
+const MODELS = {
+  fast: 'meta-llama-3.2-1b',
+  precise: 'qwen2.5-coder-32b-instruct:2'
+} as const;
+
 export class ProcessedReceipt {
   constructor(
     public storeName: string,
@@ -46,11 +53,16 @@ export class ProcessedReceipt {
 
 class OllamaService {
   private readonly apiUrl: string;
-  private readonly model: string;
+  private model: string;
 
   constructor() {
     this.apiUrl = API_URL;
-    this.model = 'hugging-quants/llama-3.2-1b-instruct';
+    this.model = MODELS.fast; // Default to fast model
+  }
+
+  setModel(type: ModelType) {
+    this.model = MODELS[type];
+    console.log(`[OLLAMA] Switched to ${type} model:`, this.model);
   }
 
   async processReceipt(receiptText: string): Promise<ProcessedReceipt> {
@@ -62,16 +74,45 @@ class OllamaService {
       const itemsExtracted = extractItemsFromText(receiptText);
       console.log('[OLLAMA] Extracted items:', itemsExtracted);
 
+      const systemPrompt = `You are a receipt parser that MUST return ONLY valid JSON, no other text.
+
+IMPORTANT: DO NOT include any explanatory text. Return ONLY the JSON object.
+
+Required JSON format:
+{
+  "items": [
+    {
+      "name": string,          // Clean item name
+      "price": number,         // Price in EUR
+      "quantity": number|null, // Quantity if found
+      "unit": string|null,     // Unit (kg, g, piece)
+      "pricePerUnit": number|null, // Price per unit
+      "taxRate": string|null,  // Tax rate as string
+      "category": string|null  // Product category
+    }
+  ],
+  "metadata": {
+    "storeName": string|null,
+    "storeAddress": string|null,
+    "date": string|null,      // ISO format
+    "totalAmount": number|null
+  }
+}
+
+Rules:
+1. ONLY return the JSON object, no other text
+2. Use null for missing data
+3. Clean item names of codes
+4. Convert prices to numbers
+5. Format dates as YYYY-MM-DD`;
+
       const requestPayload = {
         model: this.model,
         messages: [
-          { 
-            role: 'system', 
-            content: 'Extract all shopping items and prices identified in this receipt, make sure it\'s only items from this. Don\'t add anything extra and if you don\'t recognize anything, skip it.' 
-          },
-          { role: 'user', content: receiptText },
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: receiptText }
         ],
-        temperature: 0.7,
+        temperature: 0.1, // Lower temperature for more consistent output
         max_tokens: -1,
         stream: false,
       };
@@ -147,8 +188,6 @@ class OllamaService {
 
   private parseResponseToItems(responseData: any): Array<{ name: string; category: string; price: number }> {
     try {
-      const items = [];
-      
       // Extract content from the choices array
       const content = responseData.choices?.[0]?.message?.content;
       if (!content) {
@@ -158,77 +197,84 @@ class OllamaService {
 
       console.log('\n[OLLAMA] Parsing response content:', content);
       
-      // Split the content into lines and process each line
-      const lines = content.split('\n');
-      for (const line of lines) {
-        // Skip empty lines and headers
-        if (!line.trim() || line.includes('Here are the shopping items')) {
-          continue;
+      try {
+        // Try to extract JSON from the response
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        const jsonContent = jsonMatch ? jsonMatch[0] : content;
+        
+        // Try to parse the JSON
+        const parsedData = JSON.parse(jsonContent);
+        
+        if (!parsedData.items || !Array.isArray(parsedData.items)) {
+          console.error('[OLLAMA] Invalid response format: missing or invalid items array');
+          return [];
         }
 
-        // Remove bullet points and clean the line
-        const cleanLine = line.replace(/^[-•*]\s*/, '').trim();
-        if (!cleanLine) continue;
+        // Map the items to our required format
+        return parsedData.items
+          .filter(item => 
+            item && 
+            typeof item === 'object' && 
+            typeof item.name === 'string' && 
+            typeof item.price === 'number'
+          )
+          .map(item => ({
+            name: item.name.trim() || 'Unknown Item',
+            category: item.category || 'Other',
+            price: typeof item.price === 'number' ? Math.max(0, item.price) : 0,
+            quantity: item.quantity || null,
+            pricePerUnit: item.pricePerUnit || null,
+            taxRate: item.taxRate || '0.19'
+          }))
+          .filter(item => 
+            item.name !== 'Unknown Item' && 
+            item.price > 0 && 
+            !item.name.toLowerCase().includes('summe') && 
+            !item.name.toLowerCase().includes('total')
+          );
 
-        const priceFormats = [
-          // Format: Item name - price EUR
-          /^(.*?)\s*-\s*([\d,.]+)\s*(?:EUR|€)/i,
-          // Format: Item name (code) - price
-          /^(.*?)\s*\([^)]*\)\s*-\s*([\d,.]+)/,
-          // Format: Item name - price/unit
-          /^(.*?)\s*-\s*([\d,.]+)\s*EUR\/(?:kg|g|unit)/i,
-          // Format: Item name price EUR
-          /^(.*?)\s+([\d,.]+)\s*(?:EUR|€)/i
-        ];
-
-        let matched = false;
-        for (const format of priceFormats) {
-          const match = cleanLine.match(format);
-          if (match) {
-            const [_, name, priceStr] = match;
-            const cleanName = name.replace(/\([^)]*\)/g, '').trim(); // Remove parenthetical content
-            const cleanPrice = parseFloat(priceStr.replace(',', '.').replace("'", ''));
-
-            if (!isNaN(cleanPrice) && cleanName && !cleanName.toLowerCase().includes('summe')) {
-              items.push({
-                name: cleanName,
-                category: 'UNKNOWN',
-                price: cleanPrice
-              });
-              matched = true;
-              break;
-            }
-          }
-        }
-
-        // If no format matched, try to extract any number that looks like a price
-        if (!matched) {
-          const priceMatch = cleanLine.match(/(\d+[.,']?\d*)\s*(?:EUR|€)/);
-          if (priceMatch) {
-            const name = cleanLine.replace(/(\d+[.,']?\d*)\s*(?:EUR|€)/, '').trim();
-            const cleanName = name.replace(/\([^)]*\)/g, '').trim();
-            const cleanPrice = parseFloat(priceMatch[1].replace(',', '.').replace("'", ''));
-
-            if (!isNaN(cleanPrice) && cleanName && !cleanName.toLowerCase().includes('summe')) {
-              items.push({
-                name: cleanName,
-                category: 'UNKNOWN',
-                price: cleanPrice
-              });
-            }
-          }
-        }
+      } catch (jsonError) {
+        console.error('[OLLAMA] Failed to parse JSON response:', jsonError);
+        console.log('[OLLAMA] Raw content:', content);
+        
+        // Fallback to the old line-by-line parsing
+        return this.fallbackParsing(content);
       }
-
-      console.log('\n[OLLAMA] Parsed items:', items);
-      if (items.length === 0) {
-        console.log('\n[OLLAMA] No items found. Please try scanning the receipt again.');
-      }
-      return items;
     } catch (error) {
       console.error('[OLLAMA] Error parsing response:', error);
       return [];
     }
+  }
+
+  private fallbackParsing(content: string): Array<{ name: string; category: string; price: number }> {
+    const items = [];
+    const lines = content.split('\n');
+    
+    for (const line of lines) {
+      if (!line.trim() || line.includes('Here are the shopping items')) {
+        continue;
+      }
+
+      const cleanLine = line.replace(/^[-•*]\s*/, '').trim();
+      if (!cleanLine) continue;
+
+      const priceMatch = cleanLine.match(/^(.*?)\s*[-:]?\s*([\d,.]+)\s*(?:EUR|€)?/i);
+      if (priceMatch) {
+        const [_, name, priceStr] = priceMatch;
+        const cleanName = name.replace(/\([^)]*\)/g, '').trim();
+        const cleanPrice = parseFloat(priceStr.replace(',', '.').replace("'", ''));
+
+        if (!isNaN(cleanPrice) && cleanName && !cleanName.toLowerCase().includes('summe')) {
+          items.push({
+            name: cleanName,
+            category: 'Other',
+            price: cleanPrice
+          });
+        }
+      }
+    }
+
+    return items;
   }
 }
 
