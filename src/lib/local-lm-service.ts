@@ -1,13 +1,13 @@
 import { ProcessedReceipt } from './lmstudio-service';
-import { extractItemsFromText } from './parsers/default-parser';
+import { extractItemsFromText } from './parsers/new-parser'; // Updated parser
 import { CategoryName } from '@/types/categories';
 
-// Hardcoded proxy URL
-const BASE_URL = 'http://localhost:3005/api/v1';
+// Updated base URL to use the cloud endpoint
+const BASE_URL = 'https://voice.cloud.atemkeng.de/v1';
 
 const MODELS = {
-  fast: 'llama-3.2-1b-instruct:q4_k_m', // Fastest model
-  precise: 'qwen2.5-coder-14b' // More precise model
+  fast: 'llama-2-7b-chat', // Fastest model
+  precise: 'mistral-7b-instruct' // More precise model
 } as const;
 
 export type ModelType = 'fast' | 'precise';
@@ -42,6 +42,8 @@ export class LocalLMService {
           { role: 'user', content: receiptText }
         ],
         temperature: 0.1,
+        max_tokens: 2000,
+        stream: false
       };
 
       console.log('\n[LocalLM] Request body:', JSON.stringify(requestBody, null, 2));
@@ -50,6 +52,7 @@ export class LocalLMService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + import.meta.env.VITE_LOCALLM_API_KEY
         },
         body: JSON.stringify(requestBody)
       });
@@ -69,10 +72,9 @@ export class LocalLMService {
       console.log('\n[LocalLM] Extracted text:', responseText);
 
       const items = extractItemsFromText(responseText);
-      const storeName = 'Your Store Name'; // Set this to the actual store name
-      const totalAmount = items.reduce((sum, item) => sum + item.amount, 0); // Assuming each item has an amount property
+      console.log('\n[LocalLM] Parsed items:', items);
 
-      return { storeName, items, totalAmount } as ProcessedReceipt;
+      return { items } as ProcessedReceipt;
     } catch (error) {
       console.error('\n[LocalLM] API Request Error:', error);
       throw new Error('Failed to process receipt with Local LM service');
@@ -132,6 +134,7 @@ export class LocalLMService {
         ],
         temperature: 0.1,
         max_tokens: 300,
+        stream: false
       };
 
       console.log('\n[LocalLM] Request body:', JSON.stringify(requestBody, null, 2));
@@ -140,6 +143,7 @@ export class LocalLMService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + import.meta.env.VITE_LOCALLM_API_KEY
         },
         body: JSON.stringify(requestBody)
       });

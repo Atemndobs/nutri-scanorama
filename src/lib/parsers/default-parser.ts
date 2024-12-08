@@ -1,5 +1,12 @@
 import { ReceiptValidationError } from './errors';
 import { ParsedReceipt } from '@/types/receipt-types';
+import { CategoryName } from "@/types/categories";
+
+export interface ExtractedItem {
+  name: string;
+  category: CategoryName;
+  price: number;
+}
 
 export async function defaultReceiptParser(text: string, receiptId: number): Promise<ParsedReceipt> {
     const receipt: ParsedReceipt = {
@@ -33,8 +40,44 @@ export async function defaultReceiptParser(text: string, receiptId: number): Pro
  * @param text The receipt text to extract items from.
  * @returns An array of extracted items.
  */
-export function extractItemsFromText(text: string): any[] {
-    // Implement item extraction logic here
-    // For now, this is a placeholder that simulates item extraction
-    return []; // Replace with actual extraction logic
+export function extractItemsFromText(text: string): ExtractedItem[] {
+  try {
+    // Split the text into lines and remove empty lines and separator lines
+    const lines = text.split('\n').filter(line => 
+      line.trim() && !line.includes('---') && !line.toLowerCase().includes('category') && !line.toLowerCase().includes('price')
+    );
+
+    return lines.map(line => {
+      const parts = line.split('|').map(part => part.trim());
+      
+      // Skip if we don't have exactly 3 parts (name, category, price)
+      if (parts.length !== 3) {
+        console.warn('[Parser] Invalid line format:', line);
+        return null;
+      }
+
+      const [name, category, priceStr] = parts;
+
+      // Skip the header row or total row
+      if (name.toLowerCase() === 'name' || name.toLowerCase() === 'total') {
+        return null;
+      }
+
+      // Parse the price, removing any currency symbols
+      const price = parseFloat(priceStr.replace(/[$€£¥]/g, ''));
+      if (isNaN(price)) {
+        console.warn('[Parser] Invalid price format:', priceStr);
+        return null;
+      }
+
+      return {
+        name,
+        category: category as CategoryName,
+        price
+      };
+    }).filter((item): item is ExtractedItem => item !== null);
+  } catch (error) {
+    console.error('[Parser] Error parsing text:', error);
+    return [];
+  }
 }

@@ -17,6 +17,7 @@ import { Link } from "react-router-dom";
 import { CategoryManager } from "@/components/CategoryManager"; // Import CategoryManager
 import { lmstudioService } from "@/lib/lmstudio-service"; // Import LMStudio service
 import { syncManager } from "@/lib/sync-manager"; // Import Sync manager
+import { aiProviderManager } from '@/lib/ai-provider-manager';
 
 interface RecentScansProps {
   className?: string;
@@ -169,6 +170,12 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
     // setCategoryManagerOpen(true);
   };
 
+  const handleModelTypeChange = (type: 'fast' | 'precise') => {
+    setModelType(type);
+    aiProviderManager.setModelType(type);
+    console.log('[RecentScans] Model type changed to:', type);
+  };
+
   const handleAiExtraction = async (receipt: Receipt) => {
     if (!receipt.id) return;
     try {
@@ -188,8 +195,9 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
 
       console.log('[RecentScans] Using receipt text:', receipt.text);
       
-      // Call LMStudio service to process receipt
-      const processedReceipt = await lmstudioService.processReceipt(receipt.text);
+      // Use aiProviderManager instead of direct lmstudioService call
+      aiProviderManager.setModelType(modelType);
+      const processedReceipt = await aiProviderManager.processReceipt(receipt.text);
       console.debug('[RecentScans] AI Processed Receipt:', processedReceipt);
 
       if (!processedReceipt?.items || processedReceipt.items.length === 0) {
@@ -213,6 +221,10 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
 
       // Success - reset attempts and process items
       setExtractionAttempts(prev => ({ ...prev, [receipt.id]: 0 }));
+
+      // First, delete existing items for this receipt
+      await db.items.where('receiptId').equals(receipt.id!).delete();
+      console.log('[RecentScans] Cleared existing items for receipt:', receipt.id);
 
       // Process each extracted item
       const processedItems = await Promise.all(processedReceipt.items.map(async (item) => {
@@ -248,11 +260,33 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
       
     } catch (error) {
       console.error('[RecentScans] AI extraction failed:', error);
+      
+      // Show appropriate error message based on the error type
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      
       toast({
-        title: "Error",
-        description: "An error occurred while processing the receipt. Please try again.",
+        title: 'AI Extraction Failed',
+        description: errorMessage.includes('All AI providers failed') 
+          ? 'All available AI services failed to process the receipt. Please try again later.'
+          : 'Failed to extract items from receipt. Please try again.',
+        variant: "destructive",
         duration: 5000
       });
+      
+      // Increment attempt counter
+      const newAttempts = (currentAttempts || 0) + 1;
+      setExtractionAttempts(prev => ({ ...prev, [receipt.id]: newAttempts }));
+      
+      if (newAttempts >= 3) {
+        // Reset attempts after 3 failures
+        setExtractionAttempts(prev => ({ ...prev, [receipt.id]: 0 }));
+        toast({
+          title: 'Maximum Attempts Reached',
+          description: 'Unable to process receipt after multiple attempts. Please try again later or contact support.',
+          variant: "destructive",
+          duration: 7000
+        });
+      }
     } finally {
       setIsAiExtracting(false);
       setProcessingReceiptId(null);
@@ -327,9 +361,10 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                             className="h-5 px-1"
                             onClick={(e) => {
                               e.stopPropagation();
+                              setProcessingReceiptId(receipt.id);
                               handleAiExtraction(receipt);
                             }}
-                            disabled={isAiExtracting}
+                            disabled={isAiExtracting || processingReceiptId === receipt.id}
                           >
                             <Badge variant="secondary" className="text-[10px] px-1 py-0 flex items-center gap-1">
                               {processingReceiptId === receipt.id ? (
@@ -365,11 +400,21 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
                     {receipt.processed ? (
                       <>
-                        Processed
-                        {receipt.discrepancyDetected ? (
-                          <AlertTriangle className="h-3 w-3 text-destructive" />
+                        {receipt.discrepancyDetected && !isAiExtracting ? (
+                          <>
+                            Missing Items
+                            <AlertTriangle className="h-3 w-3 text-destructive" />
+                          </>
+                        ) : isAiExtracting && processingReceiptId === receipt.id ? (
+                          <>
+                            Processing...
+                            <Loader className="h-3 w-3 text-yellow-500 animate-spin" />
+                          </>
                         ) : (
-                          <CheckCircle className="h-3 w-3 text-green-500" />
+                          <>
+                            Processed
+                            <CheckCircle className="h-3 w-3 text-green-500" />
+                          </>
                         )}
                       </>
                     ) : (
@@ -400,7 +445,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                 <div>
                   <h2 className="text-lg font-semibold mb-2">Receipt Details</h2>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Badge variant="outline" className="flex items-center gap-1">
+                    <Badge variant="outline">
                       <Calendar className="w-3 h-3 text-blue-500 mr-1 inline" />
                       {new Date(selectedReceipt?.uploadDate).toLocaleDateString('de-DE', {
                         day: '2-digit',
@@ -421,8 +466,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                         disabled={isAiExtracting}
                         onClick={() => {
                           const newType = modelType === 'fast' ? 'precise' : 'fast';
-                          setModelType(newType);
-                          lmstudioService.setModel(newType);
+                          handleModelTypeChange(newType);
                           toast({
                             title: `Switched to ${newType} model`,
                             description: newType === 'fast' 
