@@ -489,5 +489,197 @@ The category management system is designed to provide a flexible and maintainabl
    - Document each parser's functionality, including specific patterns or rules used for extraction.
    - Keep parsers updated as supermarkets may change their receipt formats over time.
 
+## Receipt Image Management
+
+### Overview
+The receipt image management system provides efficient storage, optimization, and display of receipt images. It uses a multi-version approach to balance performance with quality, ensuring fast loading times while maintaining high-quality originals for detailed viewing.
+
+### Core Components
+
+1. **Image Service**
+   ```typescript
+   class ImageService {
+     async processImage(file: File, options: ImageProcessingOptions): Promise<ProcessedImage>;
+     async createThumbnail(file: File): Promise<ProcessedImage>;
+     async storeReceiptImage(receiptId: number, file: File): Promise<number>;
+     async getReceiptImage(receiptId: number): Promise<{original: Blob; thumbnail: Blob} | null>;
+   }
+   ```
+   - Singleton service pattern
+   - Image processing and optimization
+   - Storage management
+   - Memory efficiency
+
+2. **Data Structure**
+   ```typescript
+   interface ReceiptImage {
+     id?: number;
+     receiptId: number;
+     originalImage: Blob;
+     thumbnailImage: Blob;
+     mimeType: string;
+     size: number;
+     createdAt: Date;
+   }
+   ```
+   - Separate storage from receipt data
+   - Multiple image versions
+   - Metadata tracking
+   - Efficient querying
+
+3. **UI Components**
+   ```typescript
+   interface ReceiptImageViewerProps {
+     receiptId: number;
+     open: boolean;
+     onClose: () => void;
+   }
+   ```
+   - Modal image viewer
+   - Thumbnail previews
+   - Loading states
+   - Error handling
+
+### Processing Pipeline
+
+1. **Image Upload**
+   - File validation
+   - Type checking
+   - Size verification
+   - Initial metadata extraction
+
+2. **Image Processing**
+   - Resolution optimization
+   - Quality adjustment
+   - Thumbnail generation
+   - Format conversion
+
+3. **Storage Management**
+   - Blob storage
+   - IndexedDB integration
+   - Version control
+   - Cleanup routines
+
+### Design Decisions
+
+1. **Multi-Version Storage**
+   - **Decision**: Store both original and optimized versions
+   - **Rationale**:
+     - Fast thumbnail loading
+     - High-quality viewing when needed
+     - Bandwidth optimization
+     - Better mobile experience
+
+2. **Blob Storage**
+   - **Decision**: Use Blob storage over base64
+   - **Rationale**:
+     - 33% smaller storage footprint
+     - Better memory efficiency
+     - Native browser handling
+     - Improved performance
+
+3. **Separate Storage**
+   - **Decision**: Dedicated table for images
+   - **Rationale**:
+     - Better query performance
+     - Simplified backup strategy
+     - Easier maintenance
+     - Future extensibility
+
+4. **Canvas Processing**
+   - **Decision**: Use Canvas API for image processing
+   - **Rationale**:
+     - Client-side optimization
+     - Real-time preview
+     - Quality control
+     - Format flexibility
+
+### Performance Optimizations
+
+1. **Loading Strategy**
+   - Lazy loading for thumbnails
+   - Progressive loading for originals
+   - Memory management
+   - Cache utilization
+
+2. **Resource Management**
+   - URL object cleanup
+   - Memory monitoring
+   - Batch processing
+   - Background operations
+
+### Error Handling
+
+1. **Upload Validation**
+   - File type verification
+   - Size constraints
+   - Format validation
+   - Corruption detection
+
+2. **Processing Errors**
+   - Fallback strategies
+   - User notifications
+   - Recovery options
+   - Logging and monitoring
+
+### User Experience
+
+1. **Viewing Features**
+   - Smooth transitions
+   - Loading indicators
+   - Error messages
+   - Progress feedback
+
+2. **Interaction Design**
+   - Intuitive controls
+   - Responsive layout
+   - Touch support
+   - Accessibility
+
+### Future Enhancements
+
+1. **Image Features**
+   - Rotation controls
+   - Zoom capabilities
+   - Cropping tools
+   - Filter options
+
+2. **Storage Options**
+   - Cloud backup
+   - Compression improvements
+   - Format optimization
+   - Archive functionality
+
+### Testing Requirements
+
+1. **Unit Tests**
+   - Processing functions
+   - Storage operations
+   - Error handling
+   - UI components
+
+2. **Integration Tests**
+   - Upload workflow
+   - Display functionality
+   - Error scenarios
+   - Performance metrics
+
+### Security Considerations
+
+1. **Upload Security**
+   - File validation
+   - Size limits
+   - Type restrictions
+   - Sanitization
+
+2. **Storage Security**
+   - Access control
+   - Data encryption
+   - Secure deletion
+   - Privacy compliance
+
+## Conclusion
+The receipt image management system provides a robust foundation for handling receipt images efficiently while maintaining a balance between performance and quality. The architecture supports future enhancements and ensures a seamless user experience across different devices and network conditions.
+
 ## Conclusion
 By following this strategy, we can systematically implement parsers for all major German supermarkets, enhancing the application's ability to accurately process diverse receipt formats. These updates aim to enhance the robustness and usability of the receipt parsing functionality within Nutri-Scanorama v2, ensuring a better user experience and more accurate data extraction.
