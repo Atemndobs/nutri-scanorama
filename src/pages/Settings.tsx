@@ -1,8 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { db } from "@/lib/db";
-import { Database, Trash2 } from "lucide-react";
+import { Database, Trash2, Tags } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { CategoryManager } from "@/components/CategoryManager";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -69,6 +70,18 @@ const Settings = () => {
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Tags className="h-5 w-5" />
+            Category Management
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <CategoryManager />
         </CardContent>
       </Card>
     </div>

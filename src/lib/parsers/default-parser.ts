@@ -27,7 +27,13 @@ export async function defaultReceiptParser(text: string, receiptId: number): Pro
     return receipt;
 }
 
-function extractItemsFromText(text: string): any[] {
+/**
+ * Extracts items from a given receipt text.
+ * 
+ * @param text The receipt text to extract items from.
+ * @returns An array of extracted items.
+ */
+export function extractItemsFromText(text: string): any[] {
     // Implement item extraction logic here
     // For now, this is a placeholder that simulates item extraction
     return []; // Replace with actual extraction logic

@@ -11,6 +11,7 @@ import { CategoryItemsDialog } from "./CategoryItemsDialog";
 export const TopCategories = () => {
   const [needsRecalculation, setNeedsRecalculation] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<{ name: CategoryName; color: string } | null>(null);
+  const [totalItems, setTotalItems] = useState(0);
 
   // Effect to handle recalculation
   useEffect(() => {
@@ -27,15 +28,16 @@ export const TopCategories = () => {
     console.debug('[TopCategories] Starting categories query');
     
     // Get total items count for verification
-    const totalItems = await db.items.count();
-    console.debug('[TopCategories] Total items in database:', totalItems);
+    const total = await db.items.count();
+    setTotalItems(total);
+    console.debug('[TopCategories] Total items in database:', total);
     
     const allCategories = await db.categories.toArray();
     const totalCategoryCount = allCategories.reduce((sum, cat) => sum + cat.itemCount, 0);
     console.debug('[TopCategories] Total items across categories:', totalCategoryCount);
     
     // If counts don't match, trigger recalculation
-    if (totalItems !== totalCategoryCount && !needsRecalculation) {
+    if (total !== totalCategoryCount && !needsRecalculation) {
       console.debug('[TopCategories] Count mismatch detected, will trigger recalculation');
       setNeedsRecalculation(true);
     }
@@ -47,6 +49,12 @@ export const TopCategories = () => {
 
   return (
     <>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold">Categories</h2>
+        <div className="text-sm text-muted-foreground">
+          {totalItems} Scanned Items
+        </div>
+      </div>
       <div className="grid grid-cols-2 gap-4">
         {categories.slice(0, 4).map((category) => {
           const Icon = categoryIcons[category.name] || Grid;

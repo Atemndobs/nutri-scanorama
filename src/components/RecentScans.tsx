@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Receipt as ReceiptIcon, ShoppingBag, Wand2, Calendar, ShoppingCart, List, AlertTriangle, CheckCircle, Loader } from "lucide-react";
+import { Receipt as ReceiptIcon, ShoppingBag, Wand2, Calendar, ShoppingCart, List, AlertTriangle, CheckCircle, Loader, Brain, Zap } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -27,6 +27,9 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
   const [isCategoryManagerOpen, setCategoryManagerOpen] = useState(false); // Add state for CategoryManager visibility
   const [selectedItem, setSelectedItem] = useState<ReceiptItem | null>(null); // Add state for selected item
   const [isAiExtracting, setIsAiExtracting] = useState(false);
+  const [processingReceiptId, setProcessingReceiptId] = useState<number | null>(null);
+  const [extractionAttempts, setExtractionAttempts] = useState<Record<string, number>>({});
+  const [modelType, setModelType] = useState<'fast' | 'precise'>('fast');
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -78,6 +81,9 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
       .limit(3)
       .toArray();
 
+    // Get total count of receipts
+    const totalCount = await db.receipts.count();
+
     console.debug('[RecentScans] Raw receipts from DB:', recentReceipts.map(r => ({
       id: r.id,
       storeName: r.storeName,
@@ -121,7 +127,11 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
     );
 
     console.debug('[RecentScans] Finished loading all receipts with items');
-    return receiptsWithItemsAndCategories;
+    return { receipts: receiptsWithItemsAndCategories, totalCount };
+  });
+
+  const totalScannedItems = useLiveQuery(async () => {
+    return await db.items.count();
   });
 
   const handleReceiptClick = async (receipt: Receipt) => {
@@ -161,29 +171,60 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
 
   const handleAiExtraction = async (receipt: Receipt) => {
     if (!receipt.id) return;
-    
     try {
       setIsAiExtracting(true);
       
-      // Call Ollama service to extract items
-      const extractedItems = await ollamaService.extractItems(receipt.text || '');
-      console.debug('[RecentScans] AI Extracted Items:', extractedItems);
+      // Track attempts for this receipt
+      const currentAttempts = (extractionAttempts[receipt.id] || 0) + 1;
+      setExtractionAttempts(prev => ({ ...prev, [receipt.id]: currentAttempts }));
 
-      if (!extractedItems?.items?.length) {
-        throw new Error('No items extracted by AI');
+      console.log('[RecentScans] Starting AI extraction for receipt:', receipt.id);
+      console.log('[RecentScans] Receipt data:', receipt);
+      
+      if (!receipt.text) {
+        console.error('[RecentScans] Receipt text is empty');
+        throw new Error('Receipt text is empty');
       }
 
+      console.log('[RecentScans] Using receipt text:', receipt.text);
+      
+      // Call Ollama service to process receipt
+      const processedReceipt = await ollamaService.processReceipt(receipt.text);
+      console.debug('[RecentScans] AI Processed Receipt:', processedReceipt);
+
+      if (!processedReceipt?.items || processedReceipt.items.length === 0) {
+        if (currentAttempts >= 3) {
+          toast({
+            title: 'Extraction failed',
+            description: 'Unable to extract items after multiple attempts. Please try a different receipt or contact support.',
+            duration: 7000
+          });
+          // Reset attempts for this receipt
+          setExtractionAttempts(prev => ({ ...prev, [receipt.id]: 0 }));
+        } else {
+          toast({
+            title: 'No items found',
+            description: `Please try scanning the receipt again (Attempt ${currentAttempts}/3)`,
+            duration: 5000
+          });
+        }
+        return;
+      }
+
+      // Success - reset attempts and process items
+      setExtractionAttempts(prev => ({ ...prev, [receipt.id]: 0 }));
+
       // Process each extracted item
-      const processedItems = await Promise.all(extractedItems.items.map(async (item) => {
+      const processedItems = await Promise.all(processedReceipt.items.map(async (item) => {
         const category = await db.determineCategory(item.name);
         return {
           name: item.name,
           category,
           receiptId: receipt.id!,
-          timestamp: Date.now(),
-          price: item.pricePerUnit || item.totalPrice || 0,
-          date: new Date(Date.now()),
-          taxRate: '0.1', // Convert taxRate to string format
+          price: item.price || 0,
+          pricePerUnit: item.price,
+          taxRate: item.taxRate || '0.1',
+          date: receipt.purchaseDate,
         };
       }));
 
@@ -194,9 +235,6 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
         data: processedItems,
         timestamp: Date.now()
       }]);
-
-      // Add items directly to the database
-      await db.items.bulkAdd(processedItems);
 
       toast({
         title: "Success",
@@ -212,25 +250,31 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
       console.error('[RecentScans] AI extraction failed:', error);
       toast({
         title: "Error",
-        description: "Failed to extract items using AI",
-        variant: "destructive",
+        description: "An error occurred while processing the receipt. Please try again.",
+        duration: 5000
       });
     } finally {
       setIsAiExtracting(false);
+      setProcessingReceiptId(null);
     }
   };
 
   return (
     <div className={`space-y-4 ${className}`}>
-      {receipts && receipts.length > 0 && (
+      {receipts?.receipts.length > 0 && (
         <>
           <div className="flex justify-center items-center mb-4">
-            <h2 className="text-lg font-semibold">Recent Scans</h2>
-            <Link to="/scans" className="text-nutri-purple hover:underline ml-2">
-              &gt;
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold">Recent Scans</h2>
+              <Link to="/scans" className="hover:opacity-80 transition-opacity">
+                <Badge variant="secondary" className="ml-2">{receipts.totalCount}</Badge>
+              </Link>
+            </div>
+            <Link to="/scans" className="text-nutri-purple hover:underline ml-2 flex items-center">
+              <span className="text-lg">&gt;</span>
             </Link>
           </div>
-          {receipts?.map((receipt) => (
+          {receipts?.receipts.map((receipt) => (
             <Card
               key={receipt.id}
               className="bg-card/50 backdrop-blur-sm hover:bg-card/60 transition-colors cursor-pointer"
@@ -246,25 +290,57 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                     {receipt.storeName}
                     {receipt.processed && receipt.discrepancyDetected && (
                       <>
-                        <Badge variant="outline" className="flex items-center gap-1 text-muted-foreground">
+                        {/* <Badge variant="outline" className="flex items-center gap-1 text-muted-foreground">
                           <AlertTriangle className="h-3 w-3 text-destructive" />
                           Items Missing
-                        </Badge>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-5 px-1"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleAiExtraction(receipt);
-                          }}
-                          disabled={isAiExtracting}
-                        >
-                          <Badge variant="secondary" className="text-[10px] px-1 py-0 flex items-center gap-1">
-                            <Wand2 className="h-3 w-3 text-purple-500" />
-                            Try AI
-                          </Badge>
-                        </Button>
+                        </Badge> */}
+                        <div className="flex gap-2 items-center">
+                          {/* <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={isAiExtracting}
+                            onClick={() => {
+                              const newType = modelType === 'fast' ? 'precise' : 'fast';
+                              setModelType(newType);
+                              ollamaService.setModel(newType);
+                              toast({
+                                title: `Switched to ${newType} model`,
+                                description: newType === 'fast' 
+                                  ? "Using faster but less accurate model" 
+                                  : "Using slower but more accurate model",
+                                duration: 3000,
+                                className: newType === 'fast' 
+                                  ? "bg-yellow-500/10 border-yellow-500/20" 
+                                  : "bg-blue-500/10 border-blue-500/20",
+                              });
+                            }}
+                          >
+                            {modelType === 'fast' ? (
+                              <Zap className="h-3 w-3 text-yellow-500" />
+                            ) : (
+                              <Brain className="h-3 w-3 text-blue-500" />
+                            )}
+                          </Button> */}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-5 px-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAiExtraction(receipt);
+                            }}
+                            disabled={isAiExtracting}
+                          >
+                            <Badge variant="secondary" className="text-[10px] px-1 py-0 flex items-center gap-1">
+                              {processingReceiptId === receipt.id ? (
+                                <Loader className="h-3 w-3 animate-spin text-purple-500" />
+                              ) : (
+                                <Wand2 className="h-3 w-3 text-purple-500" />
+                              )}
+                              <span>{processingReceiptId === receipt.id ? 'Processing...' : 'Try AI'}</span>
+                            </Badge>
+                          </Button>
+                        </div>
                       </>
                     )}
                   </h3>
@@ -325,7 +401,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                   <h2 className="text-lg font-semibold mb-2">Receipt Details</h2>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Badge variant="outline" className="flex items-center gap-1">
-                      <Calendar className="w-3 h-3 text-muted-foreground" />
+                      <Calendar className="w-3 h-3 text-blue-500 mr-1 inline" />
                       {new Date(selectedReceipt?.uploadDate).toLocaleDateString('de-DE', {
                         day: '2-digit',
                         month: '2-digit',
@@ -338,22 +414,51 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                         Items Missing
                       </Badge>
                     )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2"
-                      onClick={() => selectedReceipt && handleAiExtraction(selectedReceipt)}
-                      disabled={isAiExtracting}
-                    >
-                      <Badge variant="secondary" className="text-[10px] px-2 py-0 flex items-center gap-1">
-                        {isAiExtracting ? (
-                          <Loader className="h-3 w-3 animate-spin text-purple-500" />
+                    <div className="flex gap-2 items-center">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={isAiExtracting}
+                        onClick={() => {
+                          const newType = modelType === 'fast' ? 'precise' : 'fast';
+                          setModelType(newType);
+                          ollamaService.setModel(newType);
+                          toast({
+                            title: `Switched to ${newType} model`,
+                            description: newType === 'fast' 
+                              ? "Faster model but less accurate" 
+                              : "More accurate model, but might take longer",
+                            duration: 3000,
+                            className: newType === 'fast' 
+                              ? "bg-yellow-500/10 border-yellow-500/20" 
+                              : "bg-blue-500/10 border-blue-500/20",
+                          });
+                        }}
+                      >
+                        {modelType === 'fast' ? (
+                          <Zap className="h-3 w-3 text-yellow-500" />
                         ) : (
-                          <Wand2 className="h-3 w-3 text-purple-500" />
+                          <Brain className="h-3 w-3 text-blue-500" />
                         )}
-                        {isAiExtracting ? "Extracting..." : "Try AI Extraction"}
-                      </Badge>
-                    </Button>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2"
+                        onClick={() => selectedReceipt && handleAiExtraction(selectedReceipt)}
+                        disabled={isAiExtracting}
+                      >
+                        <Badge variant="secondary" className="text-[10px] px-2 py-0 flex items-center gap-1">
+                          {isAiExtracting ? (
+                            <Loader className="h-3 w-3 animate-spin text-purple-500" />
+                          ) : (
+                            <Wand2 className="h-3 w-3 text-purple-500" />
+                          )}
+                          {isAiExtracting ? "Extracting..." : "Try AI Extraction"}
+                        </Badge>
+                      </Button>
+                    </div>
+                    {/* Add the ai model fast (thunder icon)/precise(brain icon) switcher here */}
                   </div>
                 </div>
               </div>
