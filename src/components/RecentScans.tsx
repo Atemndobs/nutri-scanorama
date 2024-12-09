@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Receipt as ReceiptIcon, ShoppingBag, Wand2, Calendar, ShoppingCart, List, AlertTriangle, CheckCircle, Loader, Brain, Zap } from "lucide-react";
+import { Receipt as ReceiptIcon, ShoppingBag, Wand2, Calendar, ShoppingCart, List, AlertTriangle, CheckCircle, Loader, Brain, Zap, Image } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -18,6 +18,10 @@ import { CategoryManager } from "@/components/CategoryManager"; // Import Catego
 import { lmstudioService } from "@/lib/lmstudio-service"; // Import LMStudio service
 import { syncManager } from "@/lib/sync-manager"; // Import Sync manager
 import { aiProviderManager } from '@/lib/ai-provider-manager';
+import { getStoreLogo } from '@/lib/store-logos';
+import { imageService } from '@/lib/image-service'; // Import image service
+import { ReceiptImageThumbnail } from './ReceiptImageThumbnail'; // Import ReceiptImageThumbnail
+import { ReceiptImageViewer } from './ReceiptImageViewer'; // Import ReceiptImageViewer
 
 interface RecentScansProps {
   className?: string;
@@ -33,6 +37,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
   const [modelType, setModelType] = useState<'fast' | 'precise'>('fast');
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
 
   const loadReceiptWithItems = async (receipt: Receipt) => {
     console.debug('[RecentScans] Processing receipt:', receipt);
@@ -43,6 +48,15 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
     }
 
     try {
+      // Load receipt image
+      if (receipt.id) {
+        const image = await imageService.getReceiptImage(receipt.id);
+        if (image) {
+          const imageUrl = imageService.createObjectURL(image);
+          receipt.imageUrl = imageUrl;
+        }
+      }
+
       console.debug('[RecentScans] Querying items for receipt ID:', receipt.id);
       const items = await db.items
         .where('receiptId')
@@ -73,7 +87,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
       return receipt;
     }
   };
-  
+
   const receipts = useLiveQuery(async () => {
     console.debug('[RecentScans] Loading recent receipts...');
     const recentReceipts = await db.receipts
@@ -180,21 +194,21 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
     if (!receipt.id) return;
     try {
       setIsAiExtracting(true);
-      
+
       // Track attempts for this receipt
       const currentAttempts = (extractionAttempts[receipt.id] || 0) + 1;
       setExtractionAttempts(prev => ({ ...prev, [receipt.id]: currentAttempts }));
 
       console.log('[RecentScans] Starting AI extraction for receipt:', receipt.id);
       console.log('[RecentScans] Receipt data:', receipt);
-      
+
       if (!receipt.text) {
         console.error('[RecentScans] Receipt text is empty');
         throw new Error('Receipt text is empty');
       }
 
       console.log('[RecentScans] Using receipt text:', receipt.text);
-      
+
       // Use aiProviderManager instead of direct lmstudioService call
       aiProviderManager.setModelType(modelType);
       const processedReceipt = await aiProviderManager.processReceipt(receipt.text);
@@ -253,30 +267,30 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
         description: `Successfully extracted ${processedItems.length} additional items using AI`,
         variant: "default",
       });
-      
+
       // Refresh the receipt data
       const updatedReceipt = await loadReceiptWithItems(receipt);
       setSelectedReceipt(updatedReceipt);
-      
+
     } catch (error) {
       console.error('[RecentScans] AI extraction failed:', error);
-      
+
       // Show appropriate error message based on the error type
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      
+
       toast({
         title: 'AI Extraction Failed',
-        description: errorMessage.includes('All AI providers failed') 
+        description: errorMessage.includes('All AI providers failed')
           ? 'All available AI services failed to process the receipt. Please try again later.'
           : 'Failed to extract items from receipt. Please try again.',
         variant: "destructive",
         duration: 5000
       });
-      
+
       // Increment attempt counter
       const newAttempts = (currentAttempts || 0) + 1;
       setExtractionAttempts(prev => ({ ...prev, [receipt.id]: newAttempts }));
-      
+
       if (newAttempts >= 3) {
         // Reset attempts after 3 failures
         setExtractionAttempts(prev => ({ ...prev, [receipt.id]: 0 }));
@@ -291,6 +305,11 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
       setIsAiExtracting(false);
       setProcessingReceiptId(null);
     }
+  };
+
+  const handleImageClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setImageViewerOpen(true);
   };
 
   return (
@@ -316,7 +335,20 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
             >
               <CardContent className="flex items-center p-2">
                 <div className="h-8 w-8 rounded-full bg-nutri-purple/10 flex items-center justify-center mr-3">
-                  <ReceiptIcon className="h-4 w-4 text-nutri-purple" />
+                  {/* <ReceiptIcon className="h-4 w-4 text-nutri-purple" /> */}
+                  {receipt.storeName ? (
+                    getStoreLogo(receipt.storeName) ? (
+                      <img
+                        src={getStoreLogo(receipt.storeName)}
+                        alt={receipt.storeName}
+                        className="h-6 w-6 object-contain"
+                      />
+                    ) : (
+                      <ReceiptIcon className="h-4 w-4 text-nutri-purple" />
+                    )
+                  ) : (
+                    <ReceiptIcon className="h-4 w-4 text-nutri-purple" />
+                  )}
                 </div>
                 <div className="flex-1 space-y-0.5">
                   <h3 className="font-medium flex items-center gap-2">
@@ -375,6 +407,20 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                               <span>{processingReceiptId === receipt.id ? 'Processing...' : 'Try AI'}</span>
                             </Badge>
                           </Button>
+                          {/* Add receipt thumbnail */}
+                          {receipt.id && (
+                            <div className="flex items-center">
+                              <div 
+                                className="cursor-pointer hover:opacity-80 transition-opacity flex items-center"
+                                onClick={handleImageClick}
+                              >
+                                <ReceiptImageThumbnail
+                                  receiptId={receipt.id}
+                                  onClick={handleImageClick}
+                                />
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </>
                     )}
@@ -443,7 +489,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
             <DialogTitle className="text-xl font-bold">
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <h2 className="text-lg font-semibold mb-2">Receipt Details</h2>
+                  <h2 className="text-lg font-semibold">Receipt Details</h2>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Badge variant="outline">
                       <Calendar className="w-3 h-3 text-blue-500 mr-1 inline" />
@@ -469,12 +515,12 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                           handleModelTypeChange(newType);
                           toast({
                             title: `Switched to ${newType} model`,
-                            description: newType === 'fast' 
-                              ? "Faster model but less accurate" 
+                            description: newType === 'fast'
+                              ? "Faster model but less accurate"
                               : "More accurate model, but might take longer",
                             duration: 3000,
-                            className: newType === 'fast' 
-                              ? "bg-yellow-500/10 border-yellow-500/20" 
+                            className: newType === 'fast'
+                              ? "bg-yellow-500/10 border-yellow-500/20"
                               : "bg-blue-500/10 border-blue-500/20",
                           });
                         }}
@@ -501,6 +547,21 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                           {isAiExtracting ? "Extracting..." : "Try AI Extraction"}
                         </Badge>
                       </Button>
+
+                      {/* Add receipt thumbnail */}
+                      {selectedReceipt?.id && (
+                        <div className="flex items-center">
+                          <div 
+                            className="cursor-pointer hover:opacity-80 transition-opacity flex items-center"
+                            onClick={handleImageClick}
+                          >
+                            <ReceiptImageThumbnail
+                              receiptId={selectedReceipt.id}
+                              onClick={handleImageClick}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                     {/* Add the ai model fast (thunder icon)/precise(brain icon) switcher here */}
                   </div>
@@ -517,7 +578,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                     <p className="text-sm text-muted-foreground mt-1">{selectedReceipt.storeAddress}</p>
                   )}
                 </div>
-                
+
                 <div className="flex flex-wrap gap-1 text-sm">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">
@@ -531,8 +592,8 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">
-                    <ShoppingCart className="w-3 h-3 text-green-500 ml-1 inline" />
-                    <span className="ml-1">{selectedReceipt.items?.length || 0}</span>
+                      <ShoppingCart className="w-3 h-3 text-green-500 ml-1 inline" />
+                      <span className="ml-1">{selectedReceipt.items?.length || 0}</span>
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2">
@@ -548,7 +609,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                   </div>
                 </div>
               </div>
-              
+
               {selectedReceipt.processed && selectedReceipt.items ? (
                 <>
                   <div className="overflow-y-auto max-h-96">
@@ -616,6 +677,17 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
           )}
         </DialogContent>
       </Dialog>
+      {/* Receipt Image Viewer Dialog */}
+      {selectedReceipt?.id && (
+        <ReceiptImageViewer
+          receiptId={selectedReceipt.id}
+          open={imageViewerOpen}
+          onClose={() => {
+            console.log('🔒 Closing image viewer');
+            setImageViewerOpen(false);
+          }}
+        />
+      )}
       {/* {isCategoryManagerOpen && (
         <CategoryManager item={selectedItem} onClose={() => setCategoryManagerOpen(false)} />
       )} */}

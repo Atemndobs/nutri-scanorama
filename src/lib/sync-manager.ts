@@ -72,11 +72,15 @@ class SyncManager {
     try {
       // Clean up processed items older than 24 hours
       const yesterday = Date.now() - (24 * 60 * 60 * 1000);
-      await db.syncQueue
+      const oldItems = await db.syncQueue
         .where('processed')
         .equals(true)
-        .and(item => item.timestamp < yesterday)
-        .delete();
+        .filter(item => item.timestamp < yesterday)
+        .toArray();
+      
+      if (oldItems.length > 0) {
+        await db.syncQueue.bulkDelete(oldItems.map(item => item.id!));
+      }
     } catch (error) {
       console.error('[SyncManager] Error cleaning up processed items:', error);
     }

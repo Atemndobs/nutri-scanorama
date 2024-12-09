@@ -25,7 +25,7 @@ export class ImageService {
   }
 
   async processImage(file: File, options: ImageProcessingOptions = {}): Promise<ProcessedImage> {
-    const { maxWidth = 2048, quality = 0.8 } = options;
+    const { maxWidth = 800, quality = 0.5 } = options;  // Reduced quality and max width for viewing
     
     // Create a canvas to process the image
     const canvas = document.createElement('canvas');
@@ -54,7 +54,7 @@ export class ImageService {
     // Draw and compress image
     ctx.drawImage(image, 0, 0, width, height);
     
-    // Convert to blob
+    // Convert to blob with higher compression
     const blob = await new Promise<Blob>((resolve) => {
       canvas.toBlob(
         (blob) => resolve(blob as Blob),
@@ -80,28 +80,21 @@ export class ImageService {
     });
   }
 
-  async createThumbnail(file: File): Promise<ProcessedImage> {
-    return this.processImage(file, {
-      maxWidth: 300,
-      quality: 0.6
-    });
-  }
-
-  async storeReceiptImage(receiptId: number, file: File): Promise<number> {
+  async storeReceiptImage(
+    receiptId: number, 
+    file: File, 
+    options: ImageProcessingOptions = { maxWidth: 50, quality: 0.3 }
+  ): Promise<number> {
     try {
-      // Process images
-      const [original, thumbnail] = await Promise.all([
-        this.processImage(file),
-        this.createThumbnail(file)
-      ]);
+      // Process image with viewing-optimized settings
+      const processed = await this.processImage(file, options);
 
       // Store in database
       const imageId = await db.receiptImages.add({
         receiptId,
-        originalImage: original.blob,
-        thumbnailImage: thumbnail.blob,
-        mimeType: file.type,
-        size: original.size,
+        image: processed.blob,
+        mimeType: 'image/jpeg',
+        size: processed.size,
         createdAt: new Date()
       });
 
@@ -112,21 +105,13 @@ export class ImageService {
     }
   }
 
-  async getReceiptImage(receiptId: number): Promise<{
-    original: Blob;
-    thumbnail: Blob;
-  } | null> {
+  async getReceiptImage(receiptId: number): Promise<Blob | null> {
     const image = await db.receiptImages
       .where('receiptId')
       .equals(receiptId)
       .first();
 
-    if (!image) return null;
-
-    return {
-      original: image.originalImage,
-      thumbnail: image.thumbnailImage
-    };
+    return image ? image.image : null;
   }
 
   createObjectURL(blob: Blob): string {
