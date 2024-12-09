@@ -27,3 +27,6 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Ignore development docker compose file
+docker-compose-dev.yml
