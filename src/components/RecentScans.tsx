@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Receipt as ReceiptIcon, ShoppingBag, Wand2, Calendar, ShoppingCart, List, AlertTriangle, CheckCircle, Loader, Brain, Zap } from "lucide-react";
+import { Receipt as ReceiptIcon, ShoppingBag, Wand2, Calendar, ShoppingCart, List, AlertTriangle, CheckCircle, Loader, Brain, Zap, Image } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -19,6 +19,9 @@ import { lmstudioService } from "@/lib/lmstudio-service"; // Import LMStudio ser
 import { syncManager } from "@/lib/sync-manager"; // Import Sync manager
 import { aiProviderManager } from '@/lib/ai-provider-manager';
 import { getStoreLogo } from '@/lib/store-logos';
+import { imageService } from '@/lib/image-service'; // Import image service
+import { ReceiptImageThumbnail } from './ReceiptImageThumbnail'; // Import ReceiptImageThumbnail
+import { ReceiptImageViewer } from './ReceiptImageViewer'; // Import ReceiptImageViewer
 
 interface RecentScansProps {
   className?: string;
@@ -34,6 +37,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
   const [modelType, setModelType] = useState<'fast' | 'precise'>('fast');
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
 
   const loadReceiptWithItems = async (receipt: Receipt) => {
     console.debug('[RecentScans] Processing receipt:', receipt);
@@ -44,6 +48,15 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
     }
 
     try {
+      // Load receipt image
+      if (receipt.id) {
+        const image = await imageService.getReceiptImage(receipt.id);
+        if (image) {
+          const imageUrl = imageService.createObjectURL(image);
+          receipt.imageUrl = imageUrl;
+        }
+      }
+
       console.debug('[RecentScans] Querying items for receipt ID:', receipt.id);
       const items = await db.items
         .where('receiptId')
@@ -294,6 +307,11 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
     }
   };
 
+  const handleImageClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setImageViewerOpen(true);
+  };
+
   return (
     <div className={`space-y-4 ${className}`}>
       {receipts?.receipts.length > 0 && (
@@ -389,6 +407,20 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                               <span>{processingReceiptId === receipt.id ? 'Processing...' : 'Try AI'}</span>
                             </Badge>
                           </Button>
+                          {/* Add receipt thumbnail */}
+                          {receipt.id && (
+                            <div className="flex items-center">
+                              <div 
+                                className="cursor-pointer hover:opacity-80 transition-opacity flex items-center"
+                                onClick={handleImageClick}
+                              >
+                                <ReceiptImageThumbnail
+                                  receiptId={receipt.id}
+                                  onClick={handleImageClick}
+                                />
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </>
                     )}
@@ -457,7 +489,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
             <DialogTitle className="text-xl font-bold">
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <h2 className="text-lg font-semibold mb-2">Receipt Details</h2>
+                  <h2 className="text-lg font-semibold">Receipt Details</h2>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Badge variant="outline">
                       <Calendar className="w-3 h-3 text-blue-500 mr-1 inline" />
@@ -515,6 +547,21 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                           {isAiExtracting ? "Extracting..." : "Try AI Extraction"}
                         </Badge>
                       </Button>
+
+                      {/* Add receipt thumbnail */}
+                      {selectedReceipt?.id && (
+                        <div className="flex items-center">
+                          <div 
+                            className="cursor-pointer hover:opacity-80 transition-opacity flex items-center"
+                            onClick={handleImageClick}
+                          >
+                            <ReceiptImageThumbnail
+                              receiptId={selectedReceipt.id}
+                              onClick={handleImageClick}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                     {/* Add the ai model fast (thunder icon)/precise(brain icon) switcher here */}
                   </div>
@@ -630,6 +677,17 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
           )}
         </DialogContent>
       </Dialog>
+      {/* Receipt Image Viewer Dialog */}
+      {selectedReceipt?.id && (
+        <ReceiptImageViewer
+          receiptId={selectedReceipt.id}
+          open={imageViewerOpen}
+          onClose={() => {
+            console.log('🔒 Closing image viewer');
+            setImageViewerOpen(false);
+          }}
+        />
+      )}
       {/* {isCategoryManagerOpen && (
         <CategoryManager item={selectedItem} onClose={() => setCategoryManagerOpen(false)} />
       )} */}

@@ -1,11 +1,11 @@
-import React from 'react';
-import { useState } from "react";
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
+import { imageService } from "@/lib/image-service";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Save, Trash, Pencil } from "lucide-react";
+import { ArrowLeft, Save, Trash, Pencil, Image } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { capitalizeFirstLetter } from "@/lib/utils";
 import {
@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import { Calendar, ShoppingCart, Flame } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { ReceiptImageViewer } from '@/components/ReceiptImageViewer';
 
 interface Item {
   id?: number;
@@ -48,6 +49,8 @@ export const ItemsPage = () => {
   const { toast } = useToast();
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<UpdateSpec>({});
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
 
   // Validate and convert receiptId to number
   const parsedReceiptId = receiptId ? parseInt(receiptId, 10) : null;
@@ -78,6 +81,48 @@ export const ItemsPage = () => {
     },
     [parsedReceiptId]
   );
+
+  // Load thumbnail when receipt is loaded
+  useEffect(() => {
+    let mounted = true;
+    
+    const loadThumbnail = async () => {
+      if (!parsedReceiptId) return;
+      
+      try {
+        console.log('🖼️ Loading thumbnail for receipt:', parsedReceiptId);
+        
+        // Check if image exists in database
+        const imageEntry = await db.receiptImages
+          .where('receiptId')
+          .equals(parsedReceiptId)
+          .first();
+        
+        console.log('📸 Found image entry:', imageEntry);
+        
+        if (!imageEntry || !mounted) {
+          console.log('❌ No image entry found for receipt:', parsedReceiptId);
+          return;
+        }
+        
+        // Use the thumbnail version specifically
+        const url = imageService.createObjectURL(imageEntry.thumbnail);
+        console.log('🎯 Created thumbnail URL:', url);
+        setThumbnailUrl(url);
+      } catch (error) {
+        console.error('❌ Failed to load thumbnail:', error);
+      }
+    };
+
+    loadThumbnail();
+    return () => { 
+      mounted = false;
+      // Clean up the thumbnail URL when component unmounts
+      if (thumbnailUrl) {
+        imageService.revokeObjectURL(thumbnailUrl);
+      }
+    };
+  }, [parsedReceiptId]);
 
   const handleInputChange = async (field: keyof UpdateSpec, value: string | number) => {
     const newEditForm = {
@@ -298,32 +343,33 @@ export const ItemsPage = () => {
                   <Flame className="w-3 h-3 text-orange-500 mr-1 inline" />
                   2000 kcal
                 </span>
+                {thumbnailUrl && (
+                  <span 
+                    className="cursor-pointer hover:opacity-80 transition-opacity flex items-center"
+                    onClick={() => setImageViewerOpen(true)}
+                  >
+                    <img 
+                      src={thumbnailUrl} 
+                      alt="View receipt" 
+                      className="w-5 h-5 object-cover rounded"
+                    />
+                  </span>
+                )}
               </div>
             </div>
           </div>
         </div>
 
-        {/* <div className="flex justify-center items-center mb-4">
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive" size="sm">
-                Delete Scan
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Are you sure you want to delete this scan?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This action cannot be undone. This will permanently delete the scan and all associated data.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDeleteScan}>Yes, delete it</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div> */}
+        {parsedReceiptId && (
+          <ReceiptImageViewer
+            receiptId={parsedReceiptId}
+            open={imageViewerOpen}
+            onClose={() => {
+              console.log('🔒 Closing image viewer');
+              setImageViewerOpen(false);
+            }}
+          />
+        )}
 
         <div className="-mx-2">
           <Table>

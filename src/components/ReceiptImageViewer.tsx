@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { imageService } from '@/lib/image-service';
 import { Loader2 } from 'lucide-react';
+import { db } from '@/lib/db';
 
 interface ReceiptImageViewerProps {
   receiptId: number;
@@ -25,17 +26,36 @@ export const ReceiptImageViewer: React.FC<ReceiptImageViewerProps> = ({
       try {
         setLoading(true);
         setError(null);
+        console.log('🔍 Loading full-size image for receipt:', receiptId);
 
-        const images = await imageService.getReceiptImage(receiptId);
+        const imageEntry = await db.receiptImages
+          .where('receiptId')
+          .equals(receiptId)
+          .first();
         
-        if (!images || !mounted) return;
+        console.log('📦 Found image entry:', imageEntry);
+        
+        if (!imageEntry || !mounted) {
+          console.error('❌ No image entry found for receipt:', receiptId);
+          setError('Image not found');
+          return;
+        }
 
-        const url = imageService.createObjectURL(images.original);
+        // Try fullsize first, then image (for backward compatibility)
+        const imageBlob = imageEntry.fullsize || imageEntry.image;
+        if (!imageBlob) {
+          console.error('❌ No image blob found in entry');
+          setError('Image data is missing');
+          return;
+        }
+
+        const url = imageService.createObjectURL(imageBlob);
+        console.log('✨ Created full-size image URL:', url);
         setImageUrl(url);
       } catch (err) {
+        console.error('❌ Failed to load receipt image:', err);
         if (mounted) {
           setError('Failed to load receipt image');
-          console.error('Failed to load receipt image:', err);
         }
       } finally {
         if (mounted) {
@@ -51,6 +71,7 @@ export const ReceiptImageViewer: React.FC<ReceiptImageViewerProps> = ({
     return () => {
       mounted = false;
       if (imageUrl) {
+        console.log('🧹 Cleaning up image URL:', imageUrl);
         imageService.revokeObjectURL(imageUrl);
       }
     };
@@ -58,12 +79,12 @@ export const ReceiptImageViewer: React.FC<ReceiptImageViewerProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>Receipt Image</DialogTitle>
         </DialogHeader>
         
-        <div className="relative min-h-[400px] w-full">
+        <div className="relative w-full bg-white rounded-lg overflow-hidden" style={{ maxHeight: '85vh' }}>
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin" />
@@ -81,7 +102,11 @@ export const ReceiptImageViewer: React.FC<ReceiptImageViewerProps> = ({
               src={imageUrl}
               alt="Receipt"
               className="w-full h-full object-contain"
-              onError={() => setError('Failed to display image')}
+              style={{ maxHeight: '80vh' }}
+              onError={(e) => {
+                console.error('❌ Image failed to load:', e);
+                setError('Failed to display image');
+              }}
             />
           )}
         </div>

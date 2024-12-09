@@ -18,7 +18,6 @@ export interface Receipt {
   id?: number;
   storeName: string;
   storeAddress: string;
-  imageData: string;
   uploadDate: Date;
   purchaseDate: Date;
   processed: boolean;
@@ -55,6 +54,17 @@ export interface SyncQueueItem {
   processed?: boolean;
 }
 
+export interface ReceiptImage {
+  id?: number;
+  receiptId: number;
+  image?: Blob;        // Keep for backward compatibility
+  thumbnail: Blob;     // Small version for icon
+  fullsize: Blob;      // High quality version for viewing
+  mimeType: string;
+  size: number;
+  createdAt: Date;
+}
+
 // Removing Dexie.Transaction from NutriScanTransaction interface
 interface NutriScanTransaction {
   receipts: Table<Receipt>;
@@ -62,6 +72,7 @@ interface NutriScanTransaction {
   categories: Table<Category>;
   categoryMappings: Table<CategoryMapping>;
   syncQueue: Table<SyncQueueItem>;
+  receiptImages: Table<ReceiptImage>;
 }
 
 export class NutriScanDB extends Dexie {
@@ -70,9 +81,63 @@ export class NutriScanDB extends Dexie {
   categories!: Table<Category>;
   categoryMappings!: Table<CategoryMapping>;
   syncQueue!: Table<SyncQueueItem>;
+  receiptImages!: Table<ReceiptImage>;
 
   constructor() {
     super('nutriscan');
+    this.version(10).stores({
+      receipts: '++id, storeName, storeAddress, uploadDate, purchaseDate, processed, totalAmount, discrepancyDetected',
+      items: '++id, receiptId, category, name, taxRate, price, quantity, pricePerUnit',
+      categories: '++id, name, itemCount, color',
+      categoryMappings: '++id, keyword, category',
+      syncQueue: '++id, type, table, timestamp, processed',
+      receiptImages: '++id, receiptId, thumbnail, fullsize, mimeType, size, createdAt'
+    }).upgrade(async tx => {
+      // Migrate existing images to new format
+      const images = await tx.receiptImages.toArray();
+      for (const image of images) {
+        if (image.image && (!image.thumbnail || !image.fullsize)) {
+          console.log(' Migrating image:', image.id);
+          // Use the existing image as fullsize and create a smaller thumbnail
+          await tx.receiptImages.update(image.id!, {
+            thumbnail: image.image,  // Temporarily use original as thumbnail
+            fullsize: image.image,   // Use original as fullsize
+            image: undefined         // Clear old field
+          });
+          console.log(' Migrated image:', image.id);
+        }
+      }
+    });
+
+    this.version(9).stores({
+      receipts: '++id, storeName, storeAddress, uploadDate, purchaseDate, processed, totalAmount, discrepancyDetected',
+      items: '++id, receiptId, category, name, taxRate, price, quantity, pricePerUnit',
+      categories: '++id, name, itemCount, color',
+      categoryMappings: '++id, keyword, category',
+      syncQueue: '++id, type, table, timestamp, processed',
+      receiptImages: '++id, receiptId, createdAt'
+    }).upgrade(tx => {
+      // Migration: Convert existing imageData to optimized images
+      return tx.receipts.toCollection().modify(async receipt => {
+        if (receipt.imageData) {
+          try {
+            // Convert base64 to blob
+            const response = await fetch(receipt.imageData);
+            const blob = await response.blob();
+            
+            // Process and store the image
+            const imageService = ImageService.getInstance();
+            await imageService.storeReceiptImage(receipt.id!, new File([blob], 'receipt.jpg'));
+            
+            // Clear the old imageData
+            delete receipt.imageData;
+          } catch (error) {
+            console.error('Failed to migrate receipt image:', error);
+          }
+        }
+      });
+    });
+
     this.version(8).stores({
       receipts: '++id, storeName, storeAddress, uploadDate, purchaseDate, processed, totalAmount, discrepancyDetected',
       items: '++id, receiptId, category, name, taxRate, price, quantity, pricePerUnit',
@@ -125,7 +190,7 @@ export class NutriScanDB extends Dexie {
   }
 
   async clearAllData() {
-    await this.transaction('rw', [this.receipts, this.items, this.categories, this.categoryMappings, this.syncQueue], async () => {
+    await this.transaction('rw', [this.receipts, this.items, this.categories, this.categoryMappings, this.syncQueue, this.receiptImages], async () => {
       await this.receipts.clear();
       await this.items.clear();
       
@@ -137,6 +202,7 @@ export class NutriScanDB extends Dexie {
       // Keep category mappings intact
       // await this.categoryMappings.clear();
       await this.syncQueue.clear();
+      await this.receiptImages.clear();
     });
   }
 
@@ -150,7 +216,7 @@ export class NutriScanDB extends Dexie {
   }
 
   async deleteReceipt(receiptId: number) {
-    await this.transaction('rw', [this.receipts, this.items, this.categories], async function (this: NutriScanDB) {
+    await this.transaction('rw', [this.receipts, this.items, this.categories, this.receiptImages], async function (this: NutriScanDB) {
       // Get all items for this receipt
       const items = await this.items.where('receiptId').equals(receiptId).toArray();
       
@@ -174,8 +240,9 @@ export class NutriScanDB extends Dexie {
         )
       );
 
-      // Delete items and receipt
+      // Delete items, receipt images and receipt
       await this.items.where('receiptId').equals(receiptId).delete();
+      await this.receiptImages.where('receiptId').equals(receiptId).delete();
       await this.receipts.delete(receiptId);
     });
   }
