@@ -87,14 +87,16 @@ export class ImageService {
   ): Promise<number> {
     try {
       // Process image with viewing-optimized settings
-      const processed = await this.processImage(file, options);
+      const thumbnailResult = await this.processImage(file, { maxWidth: 50, quality: 0.3 });
+      const fullsizeResult = await this.processImage(file, { maxWidth: 1200, quality: 0.8 });
 
       // Store in database
       const imageId = await db.receiptImages.add({
         receiptId,
-        image: processed.blob,
+        thumbnail: thumbnailResult.blob,
+        fullsize: fullsizeResult.blob,
         mimeType: 'image/jpeg',
-        size: processed.size,
+        size: fullsizeResult.size,
         createdAt: new Date()
       });
 
@@ -111,7 +113,7 @@ export class ImageService {
       .equals(receiptId)
       .first();
 
-    return image ? image.image : null;
+    return image ? image.fullsize : null;
   }
 
   createObjectURL(blob: Blob): string {

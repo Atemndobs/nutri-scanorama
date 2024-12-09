@@ -101,16 +101,73 @@ Improved parser logic to filter out non-relevant data such as location names and
 ### Environment Management
 Integrated `dotenv` for managing environment variables, enhancing configurability and security. This allows for secure and flexible configuration of API keys and URLs.
 
-## Store Images Implementation (Guidelines)
+## Store Images Implementation
 
-While the implementation is not yet complete, the following guidelines outline the planned strategy for adding store images:
+The image handling system has been implemented with the following features:
 
-- **Image Upload Handling**: Implement an image upload component that supports common image formats (JPEG, PNG) with validation for file size and type.
-- **Database Schema Update**: Include an `imageUrl` field in the `Receipt` model to store the URL of the uploaded image.
-- **Image Display in UI**: Modify the receipt display component to show the uploaded image alongside receipt details.
-- **API Integration**: Implement endpoints for uploading and retrieving store images securely and efficiently.
-- **User Feedback**: Provide feedback during the image upload process, including success and error messages.
-- **Testing and Validation**: Ensure the image upload and retrieval processes work as expected with unit and integration tests.
+### Image Storage
+- **Dual Image Storage**: Each receipt image is stored in two formats:
+  - Thumbnail (50px wide, 30% quality) for quick loading and preview
+  - Full-size (1200px wide, 80% quality) for detailed viewing
+- **Database Schema**: The `ReceiptImage` model includes fields for both versions:
+  ```typescript
+  interface ReceiptImage {
+    id?: number;
+    receiptId: number;
+    thumbnail: Blob;     // Small version for icon
+    fullsize: Blob;      // High quality version for viewing
+    mimeType: string;
+    size: number;
+    createdAt: Date;
+  }
+  ```
+
+### Image Service
+- **Processing**: The `ImageService` handles image resizing and compression:
+  ```typescript
+  interface ImageProcessingOptions {
+    maxWidth?: number;
+    quality?: number;
+  }
+  ```
+- **URL Management**: Handles Blob URL creation and cleanup
+- **Memory Optimization**: Automatic cleanup of unused Blob URLs
+
+### UI Components
+1. **ReceiptImageThumbnail**
+   - Displays small receipt preview
+   - Handles loading states
+   - Memory-efficient Blob URL management
+   - Click handling for full-size view
+
+2. **ReceiptImageViewer**
+   - Modal dialog for full-size image viewing
+   - High-quality image display
+   - Error handling and loading states
+   - Clean URL management
+
+### Integration Points
+1. **Upload Process**
+   - Processes both thumbnail and full-size versions
+   - Stores both versions in IndexedDB
+   - Provides upload progress feedback
+
+2. **Display Locations**
+   - Receipt details dialog
+   - Items page header
+   - Recent scans list
+
+### Performance Considerations
+- Thumbnail size optimized for quick loading
+- Full-size image loaded only when needed
+- Automatic cleanup of Blob URLs
+- Progressive loading with loading states
+
+### Error Handling
+- Graceful fallback for missing images
+- Loading state indicators
+- Clear error messages
+- Backward compatibility with old image format
 
 ## AI Text Extraction and Processing
 
@@ -702,6 +759,22 @@ The receipt image management system provides efficient storage, optimization, an
    - Data encryption
    - Secure deletion
    - Privacy compliance
+
+## Architecture Updates
+
+### Service Integration
+- **GLHF Service**: Transitioned to direct fetch calls for API requests, similar to LMStudio and Local-LM services. This change simplifies the request handling and aligns all services to a consistent pattern.
+
+### Environment Configuration
+- **Environment Variables**: Updated variable names and structure for clarity. Added comments and example values in `.env.example` to guide configuration.
+
+### UI Changes
+- **Button Labels**: Updated labels in `UploadButton.tsx` and `RecentScans.tsx` for consistency and clarity, changing 'Try AI Extraction' to 'Try AI'.
+
+### Proxy Server Adjustments
+- **GLHF Endpoint**: Modified endpoint handling in `proxy-server.js` to reflect new environment variable names and direct request handling.
+
+These updates enhance the maintainability, clarity, and consistency of the codebase, ensuring a more streamlined development process and a better user experience.
 
 ## Conclusion
 The receipt image management system provides a robust foundation for handling receipt images efficiently while maintaining a balance between performance and quality. The architecture supports future enhancements and ensures a seamless user experience across different devices and network conditions.

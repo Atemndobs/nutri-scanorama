@@ -195,9 +195,8 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
     try {
       setIsAiExtracting(true);
 
-      // Track attempts for this receipt
-      const currentAttempts = (extractionAttempts[receipt.id] || 0) + 1;
-      setExtractionAttempts(prev => ({ ...prev, [receipt.id]: currentAttempts }));
+      // Get current attempts for this receipt
+      const currentAttempts = extractionAttempts[receipt.id] || 0;
 
       console.log('[RecentScans] Starting AI extraction for receipt:', receipt.id);
       console.log('[RecentScans] Receipt data:', receipt);
@@ -278,6 +277,10 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
       // Show appropriate error message based on the error type
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
 
+      // Increment attempt counter
+      const newAttempts = (extractionAttempts[receipt.id] || 0) + 1;
+      setExtractionAttempts(prev => ({ ...prev, [receipt.id]: newAttempts }));
+
       toast({
         title: 'AI Extraction Failed',
         description: errorMessage.includes('All AI providers failed')
@@ -286,10 +289,6 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
         variant: "destructive",
         duration: 5000
       });
-
-      // Increment attempt counter
-      const newAttempts = (currentAttempts || 0) + 1;
-      setExtractionAttempts(prev => ({ ...prev, [receipt.id]: newAttempts }));
 
       if (newAttempts >= 3) {
         // Reset attempts after 3 failures
@@ -407,20 +406,6 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                               <span>{processingReceiptId === receipt.id ? 'Processing...' : 'Try AI'}</span>
                             </Badge>
                           </Button>
-                          {/* Add receipt thumbnail */}
-                          {receipt.id && (
-                            <div className="flex items-center">
-                              <div 
-                                className="cursor-pointer hover:opacity-80 transition-opacity flex items-center"
-                                onClick={handleImageClick}
-                              >
-                                <ReceiptImageThumbnail
-                                  receiptId={receipt.id}
-                                  onClick={handleImageClick}
-                                />
-                              </div>
-                            </div>
-                          )}
                         </div>
                       </>
                     )}
@@ -544,7 +529,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                           ) : (
                             <Wand2 className="h-3 w-3 text-purple-500" />
                           )}
-                          {isAiExtracting ? "Extracting..." : "Try AI Extraction"}
+                          {isAiExtracting ? "Extracting..." : "Try AI "}
                         </Badge>
                       </Button>
 

@@ -1,32 +1,32 @@
 import { validateAndCalculateTotal, extractCommonDate, cleanPrice } from './receipt-utils';
 import { ReceiptValidationError } from './errors';
 
-interface OliverFrankReceiptItem {
+interface NahkaufReceiptItem {
   name: string;
   quantity?: number;
   pricePerUnit?: number;
   totalPrice: number;
-  taxRate: "B"; // Oliver Frank seems to only use B = 7% tax rate
+  taxRate: "B"; // Nahkauf seems to only use B = 7% tax rate
 }
 
-interface ParsedOliverFrankReceipt {
+interface ParsedNahkaufReceipt {
   storeName: string;
   storeAddress: string;
   date: Date;
-  items: OliverFrankReceiptItem[];
+  items: NahkaufReceiptItem[];
   totalAmount: number;
   taxDetails: {
     taxRateB: { rate: number; net: number; tax: number; gross: number; };
   };
 }
 
-export const parseOliverFrankReceipt = async (text: string, receiptId: number): Promise<ParsedOliverFrankReceipt> => {
+export const parseNahkaufReceipt = async (text: string, receiptId: number): Promise<ParsedNahkaufReceipt> => {
   // Split text into lines and remove empty lines
   const lines = text.split('\n').filter(line => line.trim() !== '');
   
   // Initialize receipt data
-  const receipt: ParsedOliverFrankReceipt = {
-    storeName: 'Nahkauf', // Updated store name
+  const receipt: ParsedNahkaufReceipt = {
+    storeName: 'Nahkauf', 
     storeAddress: '',
     date: extractCommonDate(lines) || new Date(),
     items: [],
@@ -83,7 +83,7 @@ export const parseOliverFrankReceipt = async (text: string, receiptId: number): 
           .replace(/\s+/g, ' ')
           .trim();
 
-        const item: OliverFrankReceiptItem = {
+        const item: NahkaufReceiptItem = {
           name,
           totalPrice: cleanPrice(priceStr),
           taxRate: 'B'

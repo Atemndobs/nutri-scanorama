@@ -3,11 +3,14 @@ import { extractItemsFromText } from './parsers/new-parser'; // Updated parser
 import { CategoryName } from '@/types/categories';
 
 // Updated base URL to use the cloud endpoint
-const BASE_URL = 'https://voice.cloud.atemkeng.de/v1';
+// const BASE_URL = 'https://voice.cloud.atemkeng.de/v1';
+const BASE_URL = import.meta.env.VITE_BASE_URL_LOCAL_LM;
+const VITE_AI_FAST_MODEL_LOCAL_LM = import.meta.env.VITE_AI_FAST_MODEL_LOCAL_LM;
+const VITE_AI_PRECISE_MODEL_LOCAL_LM = import.meta.env.VITE_AI_PRECISE_MODEL_LOCAL_LM;
 
 const MODELS = {
-  fast: 'llama-2-7b-chat', // Fastest model
-  precise: 'mistral-7b-instruct' // More precise model
+  fast: VITE_AI_FAST_MODEL_LOCAL_LM,
+  precise: VITE_AI_PRECISE_MODEL_LOCAL_LM
 } as const;
 
 export type ModelType = 'fast' | 'precise';
@@ -16,9 +19,12 @@ export class LocalLMService {
   private model: string;
 
   constructor() {
-    console.log('[LocalLM] Initializing service with URL:', BASE_URL);
     this.model = MODELS.fast;
-    console.log('[LocalLM] Using model:', this.model);
+    console.log('[LocalLM] Initializing with:', {
+      baseUrl: BASE_URL,
+      fastModel: MODELS.fast,
+      preciseModel: MODELS.precise
+    });
   }
 
   setModel(type: ModelType) {
@@ -48,7 +54,7 @@ export class LocalLMService {
 
       console.log('\n[LocalLM] Request body:', JSON.stringify(requestBody, null, 2));
 
-      const response = await fetch(`${BASE_URL}/chat/completions`, {
+      const response = await fetch(`${BASE_URL}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
