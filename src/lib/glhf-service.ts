@@ -1,9 +1,8 @@
 import { CategoryName } from '@/types/categories';
-import { ProxyManager } from './proxy-manager';
 import { extractItemsFromText } from './parsers/new-parser';
 
-const BASE_URL = import.meta.env.VITE_GLHF_CHAT_BASE_URL;
-const API_KEY = import.meta.env.VITE_GLHF_CHAT_API_KEY;
+const BASE_URL = import.meta.env.VITE_BASE_URL_GLHF;
+const API_KEY = import.meta.env.VITE_API_KEY_GLHF;
 const FAST_MODEL = import.meta.env.VITE_AI_FAST_MODEL_GLHF;
 const PRECISE_MODEL = import.meta.env.VITE_AI_PRECISE_MODEL_GLHF;
 
@@ -18,7 +17,8 @@ export interface ProcessedReceipt {
 }
 
 export class GLHFService {
-  private readonly proxyManager: ProxyManager;
+  private readonly apiUrl: string;
+  private readonly apiKey: string;
 
   constructor(apiKey: string) {
     if (!BASE_URL) {
@@ -32,14 +32,15 @@ export class GLHFService {
       fastModel: FAST_MODEL,
       preciseModel: PRECISE_MODEL
     });
-    this.proxyManager = new ProxyManager(BASE_URL, apiKey);
+    this.apiUrl = BASE_URL;
+    this.apiKey = apiKey;
   }
 
   async processReceipt(receiptText: string, systemPrompt: string, usePreciseModel: boolean = false): Promise<ProcessedReceipt> {
     console.log('[GLHF] Processing receipt with:', {
       textLength: receiptText.length,
       promptLength: systemPrompt.length,
-      baseUrl: BASE_URL,
+      baseUrl: this.apiUrl,
       model: usePreciseModel ? PRECISE_MODEL : FAST_MODEL
     });
 
@@ -53,18 +54,45 @@ export class GLHFService {
     };
 
     try {
-      const data = await this.proxyManager.post('/chat/completions', body);
-      console.log('[GLHF] Raw response:', data);
+      const response = await fetch(`${this.apiUrl}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify(body)
+      });
 
-      const responseText = data.choices[0].message.content.trim();
-      console.log('[GLHF] Extracted text:', responseText);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[GLHF] API Error:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText
+        });
+        throw new Error(`GLHF API Error: ${response.status} - ${errorText || response.statusText}`);
+      }
 
-      const items = extractItemsFromText(responseText);
-      console.log('[GLHF] Parsed items:', items);
+      const data = await response.json();
+      console.log('[GLHF] Raw API response:', data);
 
-      return { items } as ProcessedReceipt;
+      const content = data.choices?.[0]?.message?.content || data.message?.content || data.content;
+      if (!content) {
+        throw new Error('No content in response');
+      }
+
+      const items = await extractItemsFromText(content);
+      console.log('[GLHF] Extracted items:', items);
+
+      return {
+        items: items.map(item => ({
+          name: item.name,
+          price: item.price,
+          category: item.category
+        }))
+      };
     } catch (error) {
-      console.error('[GLHF] Error:', error);
+      console.error('[GLHF] Error processing receipt:', error);
       throw error;
     }
   }
@@ -109,27 +137,43 @@ export class GLHFService {
     }`;
 
     try {
-      const body = {
-        model: FAST_MODEL,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: text }
-        ],
-        temperature: 0.1
-      };
+      const response = await fetch(`${this.apiUrl}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify({
+          model: FAST_MODEL,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: text }
+          ],
+          temperature: 0.1
+        })
+      });
 
-      const data = await this.proxyManager.post('/chat/completions', body);
-      const jsonMatch = data.choices[0].message.content.match(/\{[\s\S]*\}/);
-      
-      if (!jsonMatch) {
-        throw new Error('No valid JSON found in response');
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[GLHF] Category API Error:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText
+        });
+        throw new Error(`GLHF Category API Error: ${response.status} - ${errorText || response.statusText}`);
       }
 
-      const parsed = JSON.parse(jsonMatch[0]);
-      return parsed.items;
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content || data.message?.content || data.content;
+      
+      if (!content) {
+        throw new Error('No content in category response');
+      }
+
+      return JSON.parse(content);
     } catch (error) {
-      console.error('[GLHF] Error processing categories:', error);
-      return [];
+      console.error('[GLHF] Error processing category text:', error);
+      throw error;
     }
   }
 }

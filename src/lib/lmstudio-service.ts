@@ -2,7 +2,10 @@ import { ParsedItem } from '@/types/receipt-types';
 import { CategoryName } from '@/types/categories';
 import { extractItemsFromText } from './parsers/default-parser';
 
-const API_URL = import.meta.env.VITE_LMSTUDIO_BASE_URL;
+
+const API_URL = import.meta.env.VITE_BASE_URL_LMSTUDIO;
+const FAST_MODEL = import.meta.env.VITE_AI_FAST_MODEL_LMSTUDIO;
+const PRECISE_MODEL = import.meta.env.VITE_AI_PRECISE_MODEL_LMSTUDIO;
 
 interface OllamaResponse {
   items: Array<{
@@ -25,8 +28,8 @@ interface OllamaApiResponse {
 export type ModelType = 'fast' | 'precise';
 
 const MODELS = {
-  fast: import.meta.env.VITE_AI_FAST_MODEL_LMSTUDIO,
-  precise: import.meta.env.VITE_AI_PRECISE_MODEL_LMSTUDIO
+  fast: FAST_MODEL,
+  precise: PRECISE_MODEL
 } as const;
 
 export class ProcessedReceipt {
@@ -72,11 +75,16 @@ class LMStudioService {
   constructor() {
     this.apiUrl = API_URL;
     this.model = MODELS.fast; // Default to fast model
+    console.log('[LMStudio] Initializing with:', {
+      baseUrl: API_URL,
+      fastModel: MODELS.fast,
+      preciseModel: MODELS.precise
+    });
   }
 
   setModel(type: ModelType) {
     this.model = MODELS[type];
-    console.log(`[LMSTUDIO] Switched to ${type} model:`, this.model);
+    console.log(`[LMStudio] Switched to ${type} model:`, this.model);
   }
 
   async processReceipt(receiptText: string, systemPrompt: string): Promise<ProcessedReceipt> {

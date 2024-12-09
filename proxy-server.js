@@ -7,7 +7,9 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const app = express();
-const GLHF_URL = process.env.VITE_GLHF_CHAT_BASE_URL;
+const GLHF_URL = process.env.VITE_API_URL_GLHF;
+const LMSTUDIO_URL = process.env.VITE_API_URL_LMSTUDIO
+const LOCAL_LM_URL = process.env.VITE_API_URL_LOCAL_LM
 
 if (!GLHF_URL) {
   console.error('Error: VITE_GLHF_CHAT_BASE_URL is not set in environment variables');
@@ -25,7 +27,7 @@ app.use(cors({
 }));
 
 // Handle GLHF chat completions endpoint
-app.post('/glhf/chat/', async (req, res) => {
+app.post('/glhf', async (req, res) => {
   try {
     console.log('[GLHF] Received request:', {
       method: req.method,
@@ -58,9 +60,9 @@ app.post('/glhf/chat/', async (req, res) => {
     // Log the curl command
     console.log('\n[GLHF] Equivalent curl command:');
     console.log(`curl --location '${GLHF_URL}/chat/completions' \\
---header 'Content-Type: application/json' \\
---header 'Authorization: ${authHeader}' \\
---data '${JSON.stringify(requestBody, null, 2)}'`);
+    --header 'Content-Type: application/json' \\
+    --header 'Authorization: ${authHeader}' \\
+    --data '${JSON.stringify(requestBody, null, 2)}'`);
 
     // Create AbortController for timeout
     const controller = new AbortController();
@@ -69,10 +71,10 @@ app.post('/glhf/chat/', async (req, res) => {
     }, 30000); // 30 second timeout
 
     try {
-      console.log('[GLHF] Sending request to:', `${GLHF_URL}/chat/completions`);
+      console.log('[GLHF] Sending request to:', `${GLHF_URL}`);
       console.log('[GLHF] Request body:', JSON.stringify(requestBody, null, 2));
 
-      const response = await fetch(`${GLHF_URL}/chat/completions0000000000`, {
+      const response = await fetch(`${GLHF_URL}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -134,8 +136,100 @@ app.post('/glhf/chat/', async (req, res) => {
   }
 });
 
+// Handle LMStudio chat completions endpoint
+app.post('/lmstudio', async (req, res) => {
+  try {
+    console.log('[LMStudio] Received request:', {
+      method: req.method,
+      body: req.body
+    });
+    const authHeader = req.headers.authorization;
+
+    // Log the curl command
+    console.log('\n[LMStudio] Equivalent curl command:');
+    console.log(`curl --location '${LMSTUDIO_URL}/chat/completions' \\
+    --header 'Content-Type: application/json' \\
+    --header 'Authorization: ${authHeader}' \\
+    --data '${JSON.stringify(req.body, null, 2)}'`);
+
+    const response = await fetch(`${LMSTUDIO_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(req.body)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[LMStudio] Error response:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorText
+      });
+      res.status(response.status).send(errorText);
+      return;
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('[LMStudio] Error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+});
+
+// Handle LMStudio chat completions endpoint
+app.post('/local-ai', async (req, res) => {
+  try {
+    console.log('[LOCAL_AI] Received request:', {
+      method: req.method,
+      body: req.body
+    });
+    const authHeader = req.headers.authorization;
+
+    // Log the curl command
+    console.log('\n[LOCAL_AI] Equivalent curl command:');
+    console.log(`curl --location '${LOCAL_LM_URL}/chat/completions' \\
+    --header 'Content-Type: application/json' \\
+    --header 'Authorization: ${authHeader}' \\
+    --data '${JSON.stringify(req.body, null, 2)}'`);
+
+    const response = await fetch(`${LOCAL_LM_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(req.body)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[LOCAL_AI] Error response:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorText
+      });
+      res.status(response.status).send(errorText);
+      return;
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('[LOCAL_AI] Error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+});
+
 const port = process.env.PORT || 3002;
-app.listen(port, () => {
-  console.log(`Proxy server running on port ${port}`);
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Proxy server running on http://localhost:${port}`);
   console.log('GLHF endpoint:', `${GLHF_URL}/chat/completions`);
 });
