@@ -26,7 +26,7 @@ export const parseOliverFrankReceipt = async (text: string, receiptId: number): 
   
   // Initialize receipt data
   const receipt: ParsedOliverFrankReceipt = {
-    storeName: 'Oliver Frank',
+    storeName: 'Nahkauf', // Updated store name
     storeAddress: '',
     date: extractCommonDate(lines) || new Date(),
     items: [],

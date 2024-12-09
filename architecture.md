@@ -87,6 +87,31 @@ The AI integration has been fully implemented with the following features:
 - Database updates and sync queue integration
 - UI state management and updates
 
+## AI Integration Enhancements
+
+### Model Switching
+The application now supports switching between different AI models (fast and precise) for receipt processing. This allows users to optimize processing speed and accuracy based on their needs.
+
+### Duplicate Prevention
+Implemented logic to clear existing items before adding new ones during AI extraction. This ensures that running AI extraction multiple times on the same receipt does not result in duplicate items.
+
+### Enhanced Filtering
+Improved parser logic to filter out non-relevant data such as location names and receipt metadata (e.g., "Düsseldorf") from AI extraction results. This enhances the accuracy of the extracted items.
+
+### Environment Management
+Integrated `dotenv` for managing environment variables, enhancing configurability and security. This allows for secure and flexible configuration of API keys and URLs.
+
+## Store Images Implementation (Guidelines)
+
+While the implementation is not yet complete, the following guidelines outline the planned strategy for adding store images:
+
+- **Image Upload Handling**: Implement an image upload component that supports common image formats (JPEG, PNG) with validation for file size and type.
+- **Database Schema Update**: Include an `imageUrl` field in the `Receipt` model to store the URL of the uploaded image.
+- **Image Display in UI**: Modify the receipt display component to show the uploaded image alongside receipt details.
+- **API Integration**: Implement endpoints for uploading and retrieving store images securely and efficiently.
+- **User Feedback**: Provide feedback during the image upload process, including success and error messages.
+- **Testing and Validation**: Ensure the image upload and retrieval processes work as expected with unit and integration tests.
+
 ## AI Text Extraction and Processing
 
 ### Overview

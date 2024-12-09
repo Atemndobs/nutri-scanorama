@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Calendar, ShoppingCart, Flame } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 
 interface Item {
   id?: number;
@@ -200,6 +201,25 @@ export const ItemsPage = () => {
     }
   };
 
+  const handleDeleteScan = async () => {
+    if (!receipt || !receipt.id) return;
+    try {
+      await db.receipts.delete(receipt.id);
+      toast({
+        title: "Scan deleted",
+        description: "The scan has been successfully deleted.",
+      });
+      navigate('/scans'); // Navigate back to the scans page
+    } catch (error) {
+      console.error('[ItemsPage] Error deleting scan:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete scan.",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (!parsedReceiptId || isNaN(parsedReceiptId)) {
     return (
       <div className="container max-w-md mx-auto p-4">
@@ -282,6 +302,28 @@ export const ItemsPage = () => {
             </div>
           </div>
         </div>
+
+        {/* <div className="flex justify-center items-center mb-4">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" size="sm">
+                Delete Scan
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Are you sure you want to delete this scan?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This action cannot be undone. This will permanently delete the scan and all associated data.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleDeleteScan}>Yes, delete it</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div> */}
 
         <div className="-mx-2">
           <Table>

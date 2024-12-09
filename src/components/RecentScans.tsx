@@ -18,6 +18,7 @@ import { CategoryManager } from "@/components/CategoryManager"; // Import Catego
 import { lmstudioService } from "@/lib/lmstudio-service"; // Import LMStudio service
 import { syncManager } from "@/lib/sync-manager"; // Import Sync manager
 import { aiProviderManager } from '@/lib/ai-provider-manager';
+import { getStoreLogo } from '@/lib/store-logos';
 
 interface RecentScansProps {
   className?: string;
@@ -73,7 +74,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
       return receipt;
     }
   };
-  
+
   const receipts = useLiveQuery(async () => {
     console.debug('[RecentScans] Loading recent receipts...');
     const recentReceipts = await db.receipts
@@ -180,21 +181,21 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
     if (!receipt.id) return;
     try {
       setIsAiExtracting(true);
-      
+
       // Track attempts for this receipt
       const currentAttempts = (extractionAttempts[receipt.id] || 0) + 1;
       setExtractionAttempts(prev => ({ ...prev, [receipt.id]: currentAttempts }));
 
       console.log('[RecentScans] Starting AI extraction for receipt:', receipt.id);
       console.log('[RecentScans] Receipt data:', receipt);
-      
+
       if (!receipt.text) {
         console.error('[RecentScans] Receipt text is empty');
         throw new Error('Receipt text is empty');
       }
 
       console.log('[RecentScans] Using receipt text:', receipt.text);
-      
+
       // Use aiProviderManager instead of direct lmstudioService call
       aiProviderManager.setModelType(modelType);
       const processedReceipt = await aiProviderManager.processReceipt(receipt.text);
@@ -253,30 +254,30 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
         description: `Successfully extracted ${processedItems.length} additional items using AI`,
         variant: "default",
       });
-      
+
       // Refresh the receipt data
       const updatedReceipt = await loadReceiptWithItems(receipt);
       setSelectedReceipt(updatedReceipt);
-      
+
     } catch (error) {
       console.error('[RecentScans] AI extraction failed:', error);
-      
+
       // Show appropriate error message based on the error type
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      
+
       toast({
         title: 'AI Extraction Failed',
-        description: errorMessage.includes('All AI providers failed') 
+        description: errorMessage.includes('All AI providers failed')
           ? 'All available AI services failed to process the receipt. Please try again later.'
           : 'Failed to extract items from receipt. Please try again.',
         variant: "destructive",
         duration: 5000
       });
-      
+
       // Increment attempt counter
       const newAttempts = (currentAttempts || 0) + 1;
       setExtractionAttempts(prev => ({ ...prev, [receipt.id]: newAttempts }));
-      
+
       if (newAttempts >= 3) {
         // Reset attempts after 3 failures
         setExtractionAttempts(prev => ({ ...prev, [receipt.id]: 0 }));
@@ -316,7 +317,20 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
             >
               <CardContent className="flex items-center p-2">
                 <div className="h-8 w-8 rounded-full bg-nutri-purple/10 flex items-center justify-center mr-3">
-                  <ReceiptIcon className="h-4 w-4 text-nutri-purple" />
+                  {/* <ReceiptIcon className="h-4 w-4 text-nutri-purple" /> */}
+                  {receipt.storeName ? (
+                    getStoreLogo(receipt.storeName) ? (
+                      <img
+                        src={getStoreLogo(receipt.storeName)}
+                        alt={receipt.storeName}
+                        className="h-6 w-6 object-contain"
+                      />
+                    ) : (
+                      <ReceiptIcon className="h-4 w-4 text-nutri-purple" />
+                    )
+                  ) : (
+                    <ReceiptIcon className="h-4 w-4 text-nutri-purple" />
+                  )}
                 </div>
                 <div className="flex-1 space-y-0.5">
                   <h3 className="font-medium flex items-center gap-2">
@@ -469,12 +483,12 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                           handleModelTypeChange(newType);
                           toast({
                             title: `Switched to ${newType} model`,
-                            description: newType === 'fast' 
-                              ? "Faster model but less accurate" 
+                            description: newType === 'fast'
+                              ? "Faster model but less accurate"
                               : "More accurate model, but might take longer",
                             duration: 3000,
-                            className: newType === 'fast' 
-                              ? "bg-yellow-500/10 border-yellow-500/20" 
+                            className: newType === 'fast'
+                              ? "bg-yellow-500/10 border-yellow-500/20"
                               : "bg-blue-500/10 border-blue-500/20",
                           });
                         }}
@@ -517,7 +531,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                     <p className="text-sm text-muted-foreground mt-1">{selectedReceipt.storeAddress}</p>
                   )}
                 </div>
-                
+
                 <div className="flex flex-wrap gap-1 text-sm">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">
@@ -531,8 +545,8 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">
-                    <ShoppingCart className="w-3 h-3 text-green-500 ml-1 inline" />
-                    <span className="ml-1">{selectedReceipt.items?.length || 0}</span>
+                      <ShoppingCart className="w-3 h-3 text-green-500 ml-1 inline" />
+                      <span className="ml-1">{selectedReceipt.items?.length || 0}</span>
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2">
@@ -548,7 +562,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                   </div>
                 </div>
               </div>
-              
+
               {selectedReceipt.processed && selectedReceipt.items ? (
                 <>
                   <div className="overflow-y-auto max-h-96">

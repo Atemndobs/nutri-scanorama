@@ -21,7 +21,7 @@ const ScannedItemsPage: React.FC = () => {
             <Card key={item.id} className="bg-card/50 backdrop-blur-sm hover:bg-card/60 transition-colors">
               <CardContent className="p-2">
                 <div className="flex justify-between items-center">
-                  <span>{capitalizeFirstLetter(item.name)}</span>
+                  <span className="text-left">{capitalizeFirstLetter(item.name)}</span>
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2">
                       {Icon && (

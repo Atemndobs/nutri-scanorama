@@ -2,7 +2,7 @@ import { ParsedItem } from '@/types/receipt-types';
 import { CategoryName } from '@/types/categories';
 import { extractItemsFromText } from './parsers/default-parser';
 
-const API_URL = 'http://localhost:3002/api/v1/chat/completions';
+const API_URL = import.meta.env.VITE_LMSTUDIO_BASE_URL;
 
 interface OllamaResponse {
   items: Array<{
@@ -25,8 +25,8 @@ interface OllamaApiResponse {
 export type ModelType = 'fast' | 'precise';
 
 const MODELS = {
-  fast: 'meta-llama-3.2-1b',
-  precise: 'qwen2.5-coder-23b-instruct'
+  fast: import.meta.env.VITE_AI_FAST_MODEL_LMSTUDIO,
+  precise: import.meta.env.VITE_AI_PRECISE_MODEL_LMSTUDIO
 } as const;
 
 export class ProcessedReceipt {
@@ -51,6 +51,20 @@ export class ProcessedReceipt {
   }
 }
 
+interface ResponseData {
+  choices: Array<{
+    message: {
+      content: string;
+    };
+  }>;
+  metadata: {
+    storeName: string | null;
+    storeAddress: string | null;
+    date: string | null;
+    totalAmount: number | null;
+  };
+}
+
 class LMStudioService {
   private readonly apiUrl: string;
   private model: string;
@@ -65,124 +79,55 @@ class LMStudioService {
     console.log(`[LMSTUDIO] Switched to ${type} model:`, this.model);
   }
 
-  async processReceipt(receiptText: string): Promise<ProcessedReceipt> {
-    console.log('\n[LMSTUDIO] Starting receipt processing...');
-    console.log('[LMSTUDIO] Receipt text length:', receiptText.length);
-    console.log('[LMSTUDIO] First 100 chars of receipt:', receiptText.substring(0, 100));
-
+  async processReceipt(receiptText: string, systemPrompt: string): Promise<ProcessedReceipt> {
     try {
-      const itemsExtracted = extractItemsFromText(receiptText);
-      console.log('[LMSTUDIO] Extracted items:', itemsExtracted);
+      console.log('[LMStudio] Processing receipt with:', {
+        textLength: receiptText.length,
+        promptLength: systemPrompt.length,
+        model: this.model,
+        url: this.apiUrl
+      });
 
-      const systemPrompt = `You are a receipt parser that MUST return ONLY valid JSON, no other text.
-
-IMPORTANT: DO NOT include any explanatory text. Return ONLY the JSON object.
-
-Required JSON format:
-{
-  "items": [
-    {
-      "name": string,          // Clean item name
-      "price": number,         // Price in EUR
-      "quantity": number|null, // Quantity if found
-      "unit": string|null,     // Unit (kg, g, piece)
-      "pricePerUnit": number|null, // Price per unit
-      "taxRate": string|null,  // Tax rate as string
-      "category": string|null  // Product category
-    }
-  ],
-  "metadata": {
-    "storeName": string|null,
-    "storeAddress": string|null,
-    "date": string|null,      // ISO format
-    "totalAmount": number|null
-  }
-}
-
-Rules:
-1. ONLY return the JSON object, no other text
-2. Use null for missing data
-3. Clean item names of codes
-4. Convert prices to numbers
-5. Format dates as YYYY-MM-DD`;
-
-      const requestPayload = {
+      const requestBody = {
         model: this.model,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: receiptText }
         ],
-        temperature: 0.1, // Lower temperature for more consistent output
-        max_tokens: -1,
-        stream: false,
+        temperature: 0.1
       };
 
-      console.log('\n[LMSTUDIO] Sending request to LM Studio:');
-      console.log('----------------------------------------');
-      console.log('URL:', this.apiUrl);
-      console.log('Model:', this.model);
-      console.log('Payload:', JSON.stringify(requestPayload, null, 2));
-      console.log('----------------------------------------');
+      const response = await fetch(this.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
 
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 60000); // 1 minute timeout
-
-      try {
-        const response = await fetch(this.apiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Origin': window.location.origin
-          },
-          body: JSON.stringify(requestPayload),
-          mode: 'cors',
-          credentials: 'omit'
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[LMStudio] API Error:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText
         });
-
-        clearTimeout(timeout);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('[LMSTUDIO] Server error:', {
-            status: response.status,
-            statusText: response.statusText,
-            error: errorText
-          });
-          throw new Error(`HTTP error! status: ${response.status} - ${errorText || response.statusText}`);
-        }
-
-        const data = await response.json();
-
-        console.log('\n[LMSTUDIO] Received response:');
-        console.log('----------------------------------------');
-        console.log('Status:', response.status);
-        console.log('Headers:', Object.fromEntries(response.headers));
-        console.log('Data:', JSON.stringify(data, null, 2));
-        console.log('----------------------------------------');
-
-        if (!data) {
-          throw new Error('Empty response from LM Studio');
-        }
-
-        // Parse the response and convert it to ProcessedReceipt format
-        const items = this.parseResponseToItems(data);
-        const totalAmount = items.reduce((sum, item) => sum + item.price, 0);
-
-        return new ProcessedReceipt('', items, totalAmount);
-      } catch (error) {
-        console.error('\n[LMSTUDIO] Error processing receipt:', error);
-        if (error instanceof Error) {
-          console.error('[LMSTUDIO] Error message:', error.message);
-        }
-        throw new Error('Failed to process receipt');
+        throw new Error(`LMStudio API Error: ${response.status}`);
       }
+
+      const data = await response.json();
+      console.log('[LMStudio] Raw response:', data);
+
+      const responseText = data.choices[0].message.content.trim();
+      console.log('[LMStudio] Extracted text:', responseText);
+
+      const items = extractItemsFromText(responseText);
+      console.log('[LMStudio] Parsed items:', items);
+
+      return { items } as ProcessedReceipt;
     } catch (error) {
-      console.error('\n[LMSTUDIO] Error processing receipt:', error);
-      if (error instanceof Error) {
-        console.error('[LMSTUDIO] Error message:', error.message);
-      }
-      throw new Error('Failed to process receipt');
+      console.error('[LMStudio] Error:', error);
+      throw error;
     }
   }
 
@@ -252,97 +197,6 @@ Rules:
       console.error('[LMSTUDIO] Error processing categories:', error);
       return [];
     }
-  }
-
-  private parseResponseToItems(responseData: any): Array<{ name: string; category: string; price: number }> {
-    try {
-      // Extract content from the choices array
-      const content = responseData.choices?.[0]?.message?.content;
-      if (!content) {
-        console.log('\n[LMSTUDIO] No content found in response');
-        return [];
-      }
-
-      console.log('\n[LMSTUDIO] Parsing response content:', content);
-      
-      try {
-        // Try to extract JSON from the response
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        const jsonContent = jsonMatch ? jsonMatch[0] : content;
-        
-        // Try to parse the JSON
-        const parsedData = JSON.parse(jsonContent);
-        
-        if (!parsedData.items || !Array.isArray(parsedData.items)) {
-          console.error('[LMSTUDIO] Invalid response format: missing or invalid items array');
-          return [];
-        }
-
-        // Map the items to our required format
-        return parsedData.items
-          .filter(item => 
-            item && 
-            typeof item === 'object' && 
-            typeof item.name === 'string' && 
-            typeof item.price === 'number'
-          )
-          .map(item => ({
-            name: item.name.trim() || 'Unknown Item',
-            category: item.category || 'Other',
-            price: typeof item.price === 'number' ? Math.max(0, item.price) : 0,
-            quantity: item.quantity || null,
-            pricePerUnit: item.pricePerUnit || null,
-            taxRate: item.taxRate || '0.19'
-          }))
-          .filter(item => 
-            item.name !== 'Unknown Item' && 
-            item.price > 0 && 
-            !item.name.toLowerCase().includes('summe') && 
-            !item.name.toLowerCase().includes('total')
-          );
-
-      } catch (jsonError) {
-        console.error('[LMSTUDIO] Failed to parse JSON response:', jsonError);
-        console.log('[LMSTUDIO] Raw content:', content);
-        
-        // Fallback to the old line-by-line parsing
-        return this.fallbackParsing(content);
-      }
-    } catch (error) {
-      console.error('[LMSTUDIO] Error parsing response:', error);
-      return [];
-    }
-  }
-
-  private fallbackParsing(content: string): Array<{ name: string; category: string; price: number }> {
-    const items = [];
-    const lines = content.split('\n');
-    
-    for (const line of lines) {
-      if (!line.trim() || line.includes('Here are the shopping items')) {
-        continue;
-      }
-
-      const cleanLine = line.replace(/^[-•*]\s*/, '').trim();
-      if (!cleanLine) continue;
-
-      const priceMatch = cleanLine.match(/^(.*?)\s*[-:]?\s*([\d,.]+)\s*(?:EUR|€)?/i);
-      if (priceMatch) {
-        const [_, name, priceStr] = priceMatch;
-        const cleanName = name.replace(/\([^)]*\)/g, '').trim();
-        const cleanPrice = parseFloat(priceStr.replace(',', '.').replace("'", ''));
-
-        if (!isNaN(cleanPrice) && cleanName && !cleanName.toLowerCase().includes('summe')) {
-          items.push({
-            name: cleanName,
-            category: 'Other',
-            price: cleanPrice
-          });
-        }
-      }
-    }
-
-    return items;
   }
 }
 
