@@ -1,20 +1,37 @@
-# Use the official Node.js image as a base
-FROM node:14
+# Build stage
+FROM --platform=linux/amd64 node:20 as builder
 
-# Set the working directory
-WORKDIR /usr/src/app
+# Set working directory
+WORKDIR /app
 
-# Copy package.json and package-lock.json
+# Copy package files
 COPY package*.json ./
+COPY bun.lockb ./
 
 # Install dependencies
-RUN npm install
+RUN npm install --legacy-peer-deps
 
-# Copy the rest of the application code
+# Copy source code
 COPY . .
 
-# Expose the application port
-EXPOSE 3000
+# Copy example env to .env
+RUN cp .env.production .env
 
-# Command to run the application
+# Production stage
+FROM --platform=linux/amd64 node:20
+
+# Set working directory
+WORKDIR /app
+
+# Copy all files from builder
+COPY --from=builder /app ./
+
+# Set environment variable for Vite to bind to all interfaces
+ENV VITE_HOST=0.0.0.0
+
+# Expose both the Vite dev server and proxy server ports
+EXPOSE 5173
+EXPOSE 3002
+
+# Start both servers
 CMD ["npm", "start"]

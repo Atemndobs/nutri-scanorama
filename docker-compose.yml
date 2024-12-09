@@ -1,13 +1,17 @@
-version: '3'
+version: '3.8'
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: atemndobs/nutriscan-amd64:v0.0.2
+    platform: linux/amd64
+    container_name: nutri-scanorama
     ports:
-      - "3000:3000"
+      - "5173:5173"  # Vite dev server
+      - "3002:3002"  # Proxy server
     environment:
-      NODE_ENV: production
-    volumes:
-      - .:/usr/src/app
+      - VITE_HOST=0.0.0.0
+      - VITE_API_KEY_GLHF=${VITE_API_KEY_GLHF:-your_api_key_here}
+      - VITE_API_URL_GLHF=https://glhf.chat/api/openai/v1
+      - VITE_BASE_URL_GLHF=http://localhost:3002/glhf
+      - VITE_AI_FAST_MODEL_GLHF="hf:meta-llama/Llama-3.2-1B-Instruct"
+      - VITE_AI_PRECISE_MODEL_GLHF="hf:Qwen/Qwen2.5-Coder-32B-Instruct"
     restart: unless-stopped
