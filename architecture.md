@@ -774,7 +774,53 @@ The receipt image management system provides efficient storage, optimization, an
 ### Proxy Server Adjustments
 - **GLHF Endpoint**: Modified endpoint handling in `proxy-server.js` to reflect new environment variable names and direct request handling.
 
-These updates enhance the maintainability, clarity, and consistency of the codebase, ensuring a more streamlined development process and a better user experience.
+## Error Monitoring and Performance Tracking
+
+### Sentry Integration
+
+#### Overview
+The application integrates Sentry for comprehensive error monitoring, performance tracking, and real-time issue detection. This integration provides valuable insights into application behavior and helps maintain reliability.
+
+#### Implementation Details
+
+1. **Core Components**
+   - **Sentry SDK**: Integrated with Vite and React
+   - **Error Boundaries**: React-specific error handling
+   - **Performance Monitoring**: Automatic transaction tracking
+   - **Environment Separation**: Distinct development and production configurations
+
+2. **Key Features**
+   - Real-time error tracking and reporting
+   - Source map integration for accurate error stack traces
+   - Environment-specific configuration
+   - Custom error context and tags
+   - Performance monitoring with configurable sample rates
+
+3. **Configuration Decisions**
+   - **Decision**: Use Vite plugin for source map handling
+   - **Rationale**: Ensures accurate error stack traces in production
+   - **Impact**: Better debugging capabilities in production environment
+
+4. **Environment Management**
+   - Development environment: Enhanced debugging and verbose logging
+   - Production environment: Optimized for performance and minimal overhead
+   - Environment variables:
+     ```
+     VITE_SENTRY_DSN: Application-specific DSN
+     SENTRY_AUTH_TOKEN: Build-time authentication
+     ```
+
+5. **Error Handling Strategy**
+   - Automatic capture of unhandled exceptions
+   - Manual error reporting capabilities
+   - Custom error boundaries for component-level isolation
+   - Contextual information added to error reports
+
+6. **Performance Considerations**
+   - Configurable sampling rates for performance monitoring
+   - Selective enabling of features based on environment
+   - Minimal impact on application bundle size
+   - Efficient source map handling in production builds
 
 ## Conclusion
 The receipt image management system provides a robust foundation for handling receipt images efficiently while maintaining a balance between performance and quality. The architecture supports future enhancements and ensures a seamless user experience across different devices and network conditions.

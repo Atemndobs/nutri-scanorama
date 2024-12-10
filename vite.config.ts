@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
 import { VitePWA } from 'vite-plugin-pwa';
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -12,6 +13,7 @@ export default defineConfig(({ mode }) => ({
   },
   build: {
     chunkSizeWarningLimit: 600,
+    sourcemap: true, // Source maps are required for Sentry
     rollupOptions: {
       output: {
         manualChunks: {
@@ -30,7 +32,6 @@ export default defineConfig(({ mode }) => ({
         },
       },
     },
-    sourcemap: mode === 'development',
   },
   plugins: [
     react(),
@@ -86,7 +87,12 @@ export default defineConfig(({ mode }) => ({
           }
         ]
       }
-    })
+    }),
+    sentryVitePlugin({
+      org: "bertrand-atemkeng",
+      project: "javascript-nextjs",
+      authToken: process.env.SENTRY_AUTH_TOKEN,
+    }),
   ].filter(Boolean),
   resolve: {
     alias: {

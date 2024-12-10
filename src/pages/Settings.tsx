@@ -1,9 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { db } from "@/lib/db";
-import { Database, Trash2, Tags } from "lucide-react";
+import { Database, Trash2, Tags, Bug } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { CategoryManager } from "@/components/CategoryManager";
+import { SentryTest } from "@/components/SentryTest";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -82,6 +83,23 @@ const Settings = () => {
         </CardHeader>
         <CardContent>
           <CategoryManager />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bug className="h-5 w-5" />
+            Error Monitoring
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Test Sentry error monitoring by clicking the button below.
+            </p>
+            <SentryTest />
+          </div>
         </CardContent>
       </Card>
     </div>
