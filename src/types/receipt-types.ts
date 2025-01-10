@@ -1,4 +1,4 @@
-import type { CategoryName } from '@/types/categories';
+import type { CategoryName } from './categories';
 
 export interface ParsedItem {
     name: string;
@@ -22,3 +22,8 @@ export interface ParsedReceipt {
     discrepancyDetected: boolean;
 }
 
+export interface Receipt {
+    id: string;
+    imageUrl: string;
+    parsedReceipt: ParsedReceipt;
+}

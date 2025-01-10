@@ -1,6 +1,7 @@
-import Dexie, { Table } from 'dexie';
+import Dexie, { Table, Transaction } from 'dexie';
 import type { CategoryName } from '../types/categories';
 import { normalizeKeyword } from './db/categoryMappings';
+import { ImageService } from './image-service';
 
 export interface ReceiptItem {
   id?: number;
@@ -29,6 +30,7 @@ export interface Receipt {
     taxRateA: { rate: number; net: number; tax: number; gross: number; };
     taxRateB: { rate: number; net: number; tax: number; gross: number; };
   };
+  imageUrl?: string;
 }
 
 export interface Category {
@@ -45,15 +47,6 @@ export interface CategoryMapping {
   category: CategoryName;
 }
 
-export interface SyncQueueItem {
-  id?: number;
-  type: 'create' | 'update' | 'delete';
-  table: string;
-  data: any;
-  timestamp: number;
-  processed?: boolean;
-}
-
 export interface ReceiptImage {
   id?: number;
   receiptId: number;
@@ -65,7 +58,6 @@ export interface ReceiptImage {
   createdAt: Date;
 }
 
-// Removing Dexie.Transaction from NutriScanTransaction interface
 interface NutriScanTransaction {
   receipts: Table<Receipt>;
   items: Table<ReceiptItem>;
@@ -73,6 +65,15 @@ interface NutriScanTransaction {
   categoryMappings: Table<CategoryMapping>;
   syncQueue: Table<SyncQueueItem>;
   receiptImages: Table<ReceiptImage>;
+}
+
+export interface SyncQueueItem {
+  id?: number;
+  type: 'create' | 'update' | 'delete';
+  table: keyof NutriScanTransaction;
+  data: Receipt | ReceiptItem | Category | CategoryMapping | SyncQueueItem | ReceiptImage;
+  timestamp: number;
+  processed?: boolean;
 }
 
 export class NutriScanDB extends Dexie {
@@ -92,14 +93,15 @@ export class NutriScanDB extends Dexie {
       categoryMappings: '++id, keyword, category',
       syncQueue: '++id, type, table, timestamp, processed',
       receiptImages: '++id, receiptId, thumbnail, fullsize, mimeType, size, createdAt'
-    }).upgrade(async tx => {
+    }).upgrade(async (tx) => {
+      const nutriScanTx = tx as unknown as NutriScanTransaction;
       // Migrate existing images to new format
-      const images = await tx.receiptImages.toArray();
+      const images = await nutriScanTx.receiptImages.toArray();
       for (const image of images) {
         if (image.image && (!image.thumbnail || !image.fullsize)) {
           console.log(' Migrating image:', image.id);
           // Use the existing image as fullsize and create a smaller thumbnail
-          await tx.receiptImages.update(image.id!, {
+          await nutriScanTx.receiptImages.update(image.id!, {
             thumbnail: image.image,  // Temporarily use original as thumbnail
             fullsize: image.image,   // Use original as fullsize
             image: undefined         // Clear old field
@@ -116,26 +118,32 @@ export class NutriScanDB extends Dexie {
       categoryMappings: '++id, keyword, category',
       syncQueue: '++id, type, table, timestamp, processed',
       receiptImages: '++id, receiptId, createdAt'
-    }).upgrade(tx => {
+    }).upgrade(async (tx) => {
+      const nutriScanTx = tx as unknown as NutriScanTransaction;
       // Migration: Convert existing imageData to optimized images
-      return tx.receipts.toCollection().modify(async receipt => {
-        if (receipt.imageData) {
+      const receipts = await nutriScanTx.receipts.toArray();
+      for (const receipt of receipts) {
+        // Use type assertion for legacy receipt format
+        const legacyReceipt = receipt as { imageData?: string } & Receipt;
+        if (legacyReceipt.imageData) {
           try {
             // Convert base64 to blob
-            const response = await fetch(receipt.imageData);
+            const response = await fetch(legacyReceipt.imageData);
             const blob = await response.blob();
             
             // Process and store the image
             const imageService = ImageService.getInstance();
             await imageService.storeReceiptImage(receipt.id!, new File([blob], 'receipt.jpg'));
             
-            // Clear the old imageData
-            delete receipt.imageData;
+            // Update the receipt to remove imageData
+            // await nutriScanTx.receipts.update(receipt.id!, {
+            //   imageData: undefined
+            // });
           } catch (error) {
             console.error('Failed to migrate receipt image:', error);
           }
         }
-      });
+      }
     });
 
     this.version(8).stores({
@@ -146,8 +154,9 @@ export class NutriScanDB extends Dexie {
       syncQueue: '++id, type, table, timestamp, processed'
     });
 
-    this.version(7).upgrade(tx => {
-      return tx.receipts.toCollection().modify(receipt => {
+    this.version(7).upgrade((tx) => {
+      const nutriScanTx = tx as unknown as NutriScanTransaction;
+      nutriScanTx.receipts.toCollection().modify(receipt => {
         if (!receipt.text) receipt.text = '';
         if (typeof receipt.discrepancyDetected === 'undefined') {
           receipt.discrepancyDetected = false;
@@ -155,8 +164,9 @@ export class NutriScanDB extends Dexie {
       });
     });
 
-    this.version(6).upgrade(tx => {
-      return tx.receipts.toCollection().modify(receipt => {
+    this.version(6).upgrade((tx) => {
+      const nutriScanTx = tx as unknown as NutriScanTransaction;
+      return nutriScanTx.receipts.toCollection().modify(receipt => {
         if (!receipt.storeAddress) receipt.storeAddress = '';
         if (!receipt.purchaseDate) receipt.purchaseDate = receipt.uploadDate;
         if (!receipt.taxDetails) {
@@ -169,9 +179,10 @@ export class NutriScanDB extends Dexie {
       });
     });
 
-    this.version(6).upgrade(async tx => {
+    this.version(6).upgrade(async (tx) => {
+      const nutriScanTx = tx as unknown as NutriScanTransaction;
       // Update items that should be in Cereals category
-      await tx.items.toCollection().modify(item => {
+      await nutriScanTx.items.toCollection().modify(item => {
         const name = item.name.toLowerCase();
         if (
           name.includes('reis') ||
@@ -221,311 +232,22 @@ export class NutriScanDB extends Dexie {
       const items = await this.items.where('receiptId').equals(receiptId).toArray();
       
       // Update category counts
-      const categoryUpdates = items.reduce((acc: Record<string, number>, item) => {
+      const categoryUpdates: Record<string, number> = {};
+      items.forEach(item => {
         if (item.category) {
-          acc[item.category] = (acc[item.category] || 0) + 1;
+          categoryUpdates[item.category] = (categoryUpdates[item.category] || 0) + item.quantity!;
         }
-        return acc;
-      }, {});
-
-      // Decrease item counts for affected categories
-      await Promise.all(
-        Object.entries(categoryUpdates).map(([category, count]) =>
-          this.categories
-            .where('name')
-            .equals(category)
-            .modify(cat => {
-              cat.itemCount = Math.max(0, (cat.itemCount || 0) - count);
-            })
-        )
-      );
-
-      // Delete items, receipt images and receipt
+      });
+      // Apply category updates
+      for (const [category, count] of Object.entries(categoryUpdates)) {
+        await this.categories.where('name').equals(category).modify(cat => {
+          cat.itemCount -= count;
+        });
+      }
+      // Delete all items associated with this receipt
       await this.items.where('receiptId').equals(receiptId).delete();
-      await this.receiptImages.where('receiptId').equals(receiptId).delete();
+      // Delete the receipt itself
       await this.receipts.delete(receiptId);
     });
   }
-  async determineCategory(itemName: string): Promise<CategoryName> {
-    const nameBefore = normalizeKeyword(itemName);
-
-    
-    try {
-      const name = normalizeKeyword(itemName);
-      // console.debug('[DB MATCHING] Starting category determination:', { 
-      //   itemName, 
-      //   normalizedName: name
-      // });
-
-      // First check direct mappings
-      const mapping = await this.categoryMappings
-        .where('keyword')
-        .equals(name)
-        .first();
-
-      if (mapping) {
-        console.debug('[DB MATCHING] Found direct mapping:', { 
-          keyword: mapping.keyword, 
-          category: mapping.category 
-        });
-        return mapping.category;
-      }
-
-      // Then check if any keyword is included in the name
-      const mappings = await this.categoryMappings.toArray();
-      
-      for (const mapping of mappings) {
-        const normalizedKeyword = normalizeKeyword(mapping.keyword);
-        if (name.includes(normalizedKeyword)) {
-          console.debug('[DB MATCHING] Found keyword match:', { 
-            keyword: mapping.keyword, 
-            category: mapping.category,
-            itemName,
-            normalizedName: name
-          });
-          return mapping.category;
-        }
-      }
-    } catch (error) {
-      console.error('[DB MATCHING] Error:', { itemName, error });
-    }
-
-    // console.debug('[DB MATCHING] No category match found:', { 
-    //   itemName, 
-    //   normalizedName: nameBefore, 
-    //   result: 'Other' 
-    // });
-    return 'Other';
-  }
-
-  async recalculateCategoryCounts() {
-    await this.transaction('rw', [this.items, this.categories], async () => {
-      // Reset all category counts to 0
-      await this.categories.toCollection().modify(cat => {
-        cat.itemCount = 0;
-      });
-
-      // Get all items
-      const items = await this.items.toArray();
-
-      // Count items per category
-      const counts: Record<CategoryName, number> = {
-        Fruits: 0,
-        Vegetables: 0,
-        Dairy: 0,
-        Meat: 0,
-        Bakery: 0,
-        Beverages: 0,
-        Snacks: 0,
-        Cereals: 0,
-        Sweets: 0,
-        Oils: 0,
-        Other: 0
-      };
-
-      items.forEach(item => {
-        counts[item.category] = (counts[item.category] || 0) + 1;
-      });
-
-      // Update category counts
-      await Promise.all(
-        Object.entries(counts).map(([category, count]) =>
-          this.categories
-            .where('name')
-            .equals(category)
-            .modify(cat => {
-              cat.itemCount = count;
-            })
-        )
-      );
-    });
-  }
-
-  async incrementCategoryCount(category: CategoryName) {
-    const categoryRecord = await this.categories.where('name').equals(category).first();
-    if (categoryRecord) {
-      await this.categories.where('name').equals(category).modify(cat => {
-        cat.itemCount += 1;
-      });
-    }
-  }
 }
-
-export const db = new NutriScanDB();
-
-// Initialize default categories
-db.on('ready', async () => {
-  const categoriesCount = await db.categories.count();
-  if (categoriesCount === 0) {
-    await db.categories.bulkAdd([
-      { name: 'Fruits', icon: 'apple', itemCount: 0, color: '#4CAF50' },
-      { name: 'Vegetables', icon: 'carrot', itemCount: 0, color: '#8BC34A' },
-      { name: 'Dairy', icon: 'milk', itemCount: 0, color: '#FFC107' },
-      { name: 'Meat', icon: 'beef', itemCount: 0, color: '#F44336' },
-      { name: 'Bakery', icon: 'croissant', itemCount: 0, color: '#9C27B0' },
-      { name: 'Beverages', icon: 'coffee', itemCount: 0, color: '#2196F3' },
-      { name: 'Snacks', icon: 'cookie', itemCount: 0, color: '#FF9800' },
-      { name: 'Cereals', icon: 'wheat', itemCount: 0, color: '#795548' },
-      { name: 'Sweets', icon: 'candy', itemCount: 0, color: '#FFC0CB' },
-      { name: 'Oils', icon: 'oil', itemCount: 0, color: '#FFD700' },
-      { name: 'Other', icon: 'grid', itemCount: 0, color: '#9E9E9E' }
-    ]);
-  }
-
-  // Initialize default category mappings
-  const mappingsCount = await db.categoryMappings.count();
-  if (mappingsCount === 0) {
-    await db.categoryMappings.bulkAdd([
-      // Fruits
-      { keyword: 'apfel', category: 'Fruits' },
-      { keyword: 'banane', category: 'Fruits' },
-      { keyword: 'orange', category: 'Fruits' },
-      { keyword: 'mango', category: 'Fruits' },
-      { keyword: 'birne', category: 'Fruits' },
-      { keyword: 'kiwi', category: 'Fruits' },
-      { keyword: 'beere', category: 'Fruits' },
-      { keyword: 'erdbeere', category: 'Fruits' },
-      { keyword: 'himbeere', category: 'Fruits' },
-      { keyword: 'blaubeere', category: 'Fruits' },
-      { keyword: 'ananas', category: 'Fruits' },
-      { keyword: 'zitrone', category: 'Fruits' },
-      { keyword: 'limette', category: 'Fruits' },
-      { keyword: 'banane chiquita', category: 'Fruits' },
-      { keyword: 'birne abate fete', category: 'Fruits' },
-      // Vegetables
-      { keyword: 'karotte', category: 'Vegetables' },
-      { keyword: 'salat', category: 'Vegetables' },
-      { keyword: 'tomate', category: 'Vegetables' },
-      { keyword: 'romarispen', category: 'Vegetables' },
-      { keyword: 'romanita', category: 'Vegetables' },
-      { keyword: 'roma-', category: 'Vegetables' },
-      { keyword: 'gurke', category: 'Vegetables' },
-      { keyword: 'broccoli', category: 'Vegetables' },
-      { keyword: 'brokkoli', category: 'Vegetables' },
-      { keyword: 'paprika', category: 'Vegetables' },
-      { keyword: 'zwiebel', category: 'Vegetables' },
-      { keyword: 'kartoffel', category: 'Vegetables' },
-      { keyword: 'spinat', category: 'Vegetables' },
-      { keyword: 'kohl', category: 'Vegetables' },
-      { keyword: 'zucchini', category: 'Vegetables' },
-      { keyword: 'aubergine', category: 'Vegetables' },
-      { keyword: 'pilz', category: 'Vegetables' },
-      { keyword: 'avocado', category: 'Vegetables' },
-      { keyword: 'vorger', category: 'Vegetables' }, // For pre-prepared vegetables
-      { keyword: 'gusto', category: 'Vegetables' }, // For Tomato al Gusto products
-      { keyword: 'al gusto', category: 'Vegetables' }, // For Tomato al Gusto products
-      { keyword: 'kidneybohnen', category: 'Vegetables' },
-      { keyword: 'pesto rosso', category: 'Vegetables' },
-      { keyword: 'zwiebel bravos', category: 'Vegetables' },
-      { keyword: 'broccoli neutral', category: 'Vegetables' },
-      { keyword: 'paprika rot sp', category: 'Vegetables' },
-      // Cereals
-      { keyword: 'reis', category: 'Cereals' },
-      { keyword: 'parboiled', category: 'Cereals' },
-      { keyword: 'spiral', category: 'Cereals' }, // For pasta spirals
-      { keyword: 'spiralen', category: 'Cereals' }, // German pasta spirals
-      { keyword: 'nudel', category: 'Cereals' },
-      { keyword: 'pasta', category: 'Cereals' },
-      { keyword: 'müsli', category: 'Cereals' },
-      { keyword: 'muesli', category: 'Cereals' },
-      { keyword: 'cornflakes', category: 'Cereals' },
-      { keyword: 'haferflocken', category: 'Cereals' },
-      // Dairy
-      { keyword: 'milch', category: 'Dairy' },
-      { keyword: 'joghurt', category: 'Dairy' },
-      { keyword: 'fr. jog. natur', category: 'Dairy' },
-      { keyword: 'käse', category: 'Dairy' },
-      { keyword: 'butter', category: 'Dairy' },
-      { keyword: 'sahne', category: 'Dairy' },
-      { keyword: 'quark', category: 'Dairy' },
-      { keyword: 'frischkäse', category: 'Dairy' },
-      { keyword: 'schmand', category: 'Dairy' },
-      { keyword: 'mozarella', category: 'Dairy' },
-      { keyword: 'old amsterdam', category: 'Dairy' },
-      { keyword: 'lesbos feta', category: 'Dairy' },
-      { keyword: 'griech. hirtenka', category: 'Dairy' },
-      { keyword: 'creme fraiche', category: 'Dairy' },
-      { keyword: 'fr. jog. natur 1,5', category: 'Dairy' },
-      // Meat
-      { keyword: 'fleisch', category: 'Meat' },
-      { keyword: 'wurst', category: 'Meat' },
-      { keyword: 'rostbratwurst', category: 'Meat' },
-      { keyword: 'rostbratwuerste', category: 'Meat' },
-      { keyword: 'schinken', category: 'Meat' },
-      { keyword: 'hähnchen', category: 'Meat' },
-      { keyword: 'hae-schenkel', category: 'Meat' },
-      { keyword: 'schenkel', category: 'Meat' },
-      { keyword: 'rind', category: 'Meat' },
-      { keyword: 'schwein', category: 'Meat' },
-      { keyword: 'fisch', category: 'Meat' },
-      { keyword: 'lachs', category: 'Meat' },
-      { keyword: 'thunfisch', category: 'Meat' },
-      { keyword: 'salami', category: 'Meat' },
-      { keyword: 'spiessbraten', category: 'Meat' },
-      { keyword: 'spiess', category: 'Meat' }, // Common abbreviation
-      { keyword: 'spieß', category: 'Meat' }, // Alternative spelling
-      { keyword: 'bacon in streif', category: 'Meat' },
-      // Bakery
-      { keyword: 'brot', category: 'Bakery' },
-      { keyword: 'brötchen', category: 'Bakery' },
-      { keyword: 'croissant', category: 'Bakery' },
-      { keyword: 'buttercroissant', category: 'Bakery' },
-      { keyword: 'kuchen', category: 'Bakery' },
-      { keyword: 'gebäck', category: 'Bakery' },
-      { keyword: 'gebaeck', category: 'Bakery' }, // Alternative spelling without umlaut
-      { keyword: 'toast', category: 'Bakery' },
-      { keyword: 'brezel', category: 'Bakery' },
-      { keyword: 'donut', category: 'Bakery' },
-      { keyword: 'pastel', category: 'Bakery' },
-      { keyword: 'nata', category: 'Bakery' }, // For Pastel de Nata
-      { keyword: 'butterspr', category: 'Bakery' },
-      { keyword: 'spritz', category: 'Bakery' }, // For Butter Spritz cookies
-      { keyword: 'anno 1688', category: 'Bakery' },
-      { keyword: 'anno 1688 rustik', category: 'Bakery' },
-      { keyword: 'flammkuchenteig', category: 'Bakery' },
-      // Beverages
-      { keyword: 'wasser', category: 'Beverages' },
-      { keyword: 'saft', category: 'Beverages' },
-      { keyword: 'cola', category: 'Beverages' },
-      { keyword: 'bier', category: 'Beverages' },
-      { keyword: 'wein', category: 'Beverages' },
-      { keyword: 'tee', category: 'Beverages' },
-      { keyword: 'kaffee', category: 'Beverages' },
-      { keyword: 'limonade', category: 'Beverages' },
-      { keyword: 'smoothie', category: 'Beverages' },
-      // Snacks
-      { keyword: 'chips', category: 'Snacks' },
-      { keyword: 'nüsse', category: 'Snacks' },
-      { keyword: 'schokolade', category: 'Snacks' },
-      { keyword: 'schoko', category: 'Snacks' },
-      { keyword: 'schokoladen', category: 'Snacks' }, // Common variant
-      { keyword: 'keks', category: 'Snacks' },
-      { keyword: 'süßigkeit', category: 'Snacks' },
-      { keyword: 'suessigkeit', category: 'Snacks' }, // Alternative spelling without umlaut
-      { keyword: 'bonbon', category: 'Snacks' },
-      { keyword: 'gummibär', category: 'Snacks' },
-      { keyword: 'gummibaer', category: 'Snacks' }, // Alternative spelling without umlaut
-      { keyword: 'riegel', category: 'Snacks' },
-      { keyword: 'popcorn', category: 'Snacks' },
-      { keyword: 'cracker', category: 'Snacks' },
-      { keyword: 'miluna', category: 'Snacks' },
-      { keyword: 'negrom', category: 'Snacks' }, // For Miluna Negrom products
-      { keyword: 'spekulatius', category: 'Snacks' },
-      { keyword: 'giotto', category: 'Snacks' },
-      { keyword: 'giotto haselnuss', category: 'Snacks' },
-      // Sweets
-      { keyword: 'süß', category: 'Sweets' },
-      { keyword: 'bonbon', category: 'Sweets' },
-      { keyword: 'keks', category: 'Sweets' },
-      { keyword: 'cookie', category: 'Sweets' },
-      { keyword: 'schokolade', category: 'Sweets' },
-      // Oils
-      { keyword: 'öl', category: 'Oils' },
-      { keyword: 'essig', category: 'Oils' },
-      { keyword: 'dressing', category: 'Oils' },
-      { keyword: 'olivenöl', category: 'Oils' },
-      { keyword: 'mayonnaise', category: 'Oils' },
-      { keyword: 'deli. mayonnaise', category: 'Oils' },
-    ]);
-  }
-});

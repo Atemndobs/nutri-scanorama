@@ -311,6 +311,35 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
     setImageViewerOpen(true);
   };
 
+    const handleAddItem = async () => {
+        if (!selectedReceipt?.id) return;
+        const newItem = {
+            name: 'New Item',
+            category: 'Other',
+            receiptId: selectedReceipt.id,
+            price: 0,
+            pricePerUnit: 0,
+            taxRate: '0.1',
+            date: selectedReceipt.purchaseDate,
+        };
+        try {
+            await db.items.add(newItem);
+            toast({
+                title: "Item added",
+                description: "New item has been added to the receipt.",
+            });
+            const updatedReceipt = await loadReceiptWithItems(selectedReceipt);
+            setSelectedReceipt(updatedReceipt);
+        } catch (error) {
+            console.error('Error adding item:', error);
+            toast({
+                title: "Error",
+                description: "Failed to add new item.",
+                variant: "destructive",
+            });
+        }
+    };
+
   return (
     <div className={`space-y-4 ${className}`}>
       {receipts?.receipts.length > 0 && (
@@ -323,7 +352,7 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
               </Link>
             </div>
             <Link to="/scans" className="text-nutri-purple hover:underline ml-2 flex items-center">
-              <span className="text-lg">&gt;</span>
+              <span className="text-lg">></span>
             </Link>
           </div>
           {receipts?.receipts.map((receipt) => (
@@ -650,6 +679,12 @@ export const RecentScans: React.FC<RecentScansProps> = ({ className }) => {
                       }}
                     >
                       Edit Items
+                    </Button>
+                    <Button
+                        size="sm"
+                        onClick={handleAddItem}
+                    >
+                        Add Item
                     </Button>
                   </div>
                 </>
